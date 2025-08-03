@@ -4,6 +4,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Package lock files (exclude to avoid version conflicts in Docker)
+package-lock.json
+frontend/package-lock.json
+yarn.lock
+frontend/yarn.lock
+
 # Frontend build artifacts (will be built in Docker)
 frontend/build/
 frontend/node_modules/

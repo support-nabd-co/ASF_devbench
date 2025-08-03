@@ -5,10 +5,10 @@ FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Copy frontend package files
-COPY frontend/package*.json ./
+COPY frontend/package.json ./
 
-# Install frontend dependencies
-RUN npm ci --only=production
+# Clean install frontend dependencies
+RUN npm install
 
 # Copy frontend source code
 COPY frontend/ ./
@@ -22,10 +22,10 @@ FROM node:18-alpine AS backend-builder
 WORKDIR /app
 
 # Copy backend package files
-COPY package*.json ./
+COPY package.json ./
 
-# Install backend dependencies
-RUN npm ci --only=production
+# Clean install backend dependencies
+RUN npm install --production
 
 # Stage 3: Production image
 FROM node:18-alpine AS production
@@ -40,7 +40,7 @@ RUN addgroup -g 1001 -S nodejs && \
 
 # Copy backend dependencies and source
 COPY --from=backend-builder /app/node_modules ./node_modules
-COPY --from=backend-builder /app/package*.json ./
+COPY --from=backend-builder /app/package.json ./
 COPY server.js ./
 COPY .env.example ./
 
