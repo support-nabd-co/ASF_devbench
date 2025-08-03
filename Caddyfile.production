@@ -1,0 +1,52 @@
+# Complete Caddyfile for your server
+# This should replace or be added to your existing Caddyfile
+
+# Existing OpenProject configuration (keep this as-is)
+openproject.nabd-co.com {
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    reverse_proxy openproject:8080
+}
+
+# NEW: Devbench Manager configuration
+tbm.asf.nabd-co.com {
+    # Enable TLS with modern protocols
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    
+    # Add security headers
+    header {
+        # Security headers
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        X-XSS-Protection "1; mode=block"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        
+        # Remove server info
+        -Server
+    }
+    
+    # Reverse proxy to Devbench Manager container
+    # The container exposes port 3001 internally
+    reverse_proxy devbench-manager:3001 {
+        # Health check
+        health_uri /api/health
+        health_interval 30s
+        health_timeout 5s
+    }
+    
+    # Enable compression
+    encode gzip
+    
+    # Logging (optional)
+    log {
+        output file /var/log/caddy/devbench.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+        format json
+    }
+}
