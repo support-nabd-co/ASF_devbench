@@ -14,6 +14,10 @@ const PORT = process.env.PORT || 3001;
 // JWT Secret - In production, use a secure random string from environment variables
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
+// Admin credentials
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-this-password';
+
 // SSH Configuration
 const SSH_CONFIG = {
   host: 'asf-tb.duckdns.org',
@@ -69,6 +73,30 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// Admin Authentication Middleware
+const authenticateAdmin = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Admin access token required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired admin token' });
+    }
+    
+    // Check if user is admin
+    if (!user.isAdmin) {
+      return res.status(403).json({ error: 'Admin privileges required' });
+    }
+    
+    req.user = user;
+    next();
+  });
+};
+
 // API Routes
 
 /**
@@ -100,18 +128,19 @@ app.post('/api/login', async (req, res) => {
 
     const trimmedUsername = username.trim();
 
-    // Create user document in Firestore if it doesn't exist
+    // Check if user exists in Firestore
     if (db) {
       const appId = global.__app_id || process.env.APP_ID || 'default-app';
       const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
       const userDoc = await userRef.get();
 
       if (!userDoc.exists) {
-        await userRef.set({
-          username: trimmedUsername,
-          createdAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-        console.log(`✅ Created new user: ${trimmedUsername}`);
+        return res.status(401).json({ error: 'User not found. Please contact an administrator to create your account.' });
+      }
+
+      const userData = userDoc.data();
+      if (userData.disabled) {
+        return res.status(401).json({ error: 'Account is disabled. Please contact an administrator.' });
       }
     }
 
@@ -128,6 +157,36 @@ app.post('/api/login', async (req, res) => {
   } catch (error) {
     console.error('❌ Login error:', error);
     res.status(500).json({ error: 'Internal server error during login' });
+  }
+});
+
+/**
+ * POST /api/admin/login
+ * Admin authentication endpoint
+ * Returns a JWT token with admin privileges
+ */
+app.post('/api/admin/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    // Validate admin credentials
+    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: 'Invalid admin credentials' });
+    }
+
+    // Generate JWT token with admin flag (expires in 24 hours)
+    const token = jwt.sign(
+      { username: ADMIN_USERNAME, isAdmin: true },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({ token });
+    console.log(`✅ Admin logged in: ${username}`);
+
+  } catch (error) {
+    console.error('❌ Admin login error:', error);
+    res.status(500).json({ error: 'Internal server error during admin login' });
   }
 });
 
@@ -307,6 +366,187 @@ async function executeSSHCommand(devbenchRef, devbenchName, username) {
     }
   }
 }
+
+// User Management API Endpoints (Admin only)
+
+/**
+ * GET /api/admin/users
+ * Get all users (admin only)
+ */
+app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+  try {
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const usersRef = db.collection('artifacts').doc(appId).collection('users');
+    const snapshot = await usersRef.orderBy('createdAt', 'desc').get();
+    
+    const users = [];
+    snapshot.forEach(doc => {
+      users.push({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate?.() || new Date()
+      });
+    });
+
+    res.json(users);
+    console.log(`✅ Admin fetched ${users.length} users`);
+
+  } catch (error) {
+    console.error('❌ Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+/**
+ * POST /api/admin/users
+ * Create a new user (admin only)
+ */
+app.post('/api/admin/users', authenticateAdmin, async (req, res) => {
+  try {
+    const { username, email, fullName } = req.body;
+
+    // Validation
+    if (!username || typeof username !== 'string' || username.trim().length === 0) {
+      return res.status(400).json({ error: 'Username is required and must be a non-empty string' });
+    }
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const trimmedUsername = username.trim();
+    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
+    
+    // Check if user already exists
+    const existingUser = await userRef.get();
+    if (existingUser.exists) {
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    // Create new user
+    const userData = {
+      username: trimmedUsername,
+      email: email || '',
+      fullName: fullName || '',
+      disabled: false,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdBy: req.user.username
+    };
+
+    await userRef.set(userData);
+
+    res.status(201).json({
+      id: trimmedUsername,
+      ...userData,
+      createdAt: new Date()
+    });
+    
+    console.log(`✅ Admin created new user: ${trimmedUsername}`);
+
+  } catch (error) {
+    console.error('❌ Error creating user:', error);
+    res.status(500).json({ error: 'Failed to create user' });
+  }
+});
+
+/**
+ * PUT /api/admin/users/:username
+ * Update user (admin only)
+ */
+app.put('/api/admin/users/:username', authenticateAdmin, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const { email, fullName, disabled } = req.body;
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
+    
+    // Check if user exists
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update user data
+    const updateData = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedBy: req.user.username
+    };
+
+    if (email !== undefined) updateData.email = email;
+    if (fullName !== undefined) updateData.fullName = fullName;
+    if (disabled !== undefined) updateData.disabled = disabled;
+
+    await userRef.update(updateData);
+
+    const updatedUser = await userRef.get();
+    res.json({
+      id: username,
+      ...updatedUser.data(),
+      updatedAt: new Date()
+    });
+    
+    console.log(`✅ Admin updated user: ${username}`);
+
+  } catch (error) {
+    console.error('❌ Error updating user:', error);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:username
+ * Delete user (admin only)
+ */
+app.delete('/api/admin/users/:username', authenticateAdmin, async (req, res) => {
+  try {
+    const { username } = req.params;
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
+    
+    // Check if user exists
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Delete user and all their devbenches
+    const devbenchesRef = userRef.collection('devbenches');
+    const devbenchesSnapshot = await devbenchesRef.get();
+    
+    // Delete all devbenches in a batch
+    const batch = db.batch();
+    devbenchesSnapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    // Delete user document
+    batch.delete(userRef);
+    
+    await batch.commit();
+
+    res.json({ message: 'User and all associated data deleted successfully' });
+    console.log(`✅ Admin deleted user: ${username}`);
+
+  } catch (error) {
+    console.error('❌ Error deleting user:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
+});
 
 // Catch-all handler: send back React's index.html file for client-side routing
 app.get('*', (req, res) => {

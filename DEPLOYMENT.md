@@ -10,7 +10,7 @@ This guide will help you deploy the Devbench Manager application to your cloud s
    - Ubuntu 20.04+ or similar Linux distribution
    - Docker and Docker Compose installed
    - Domain `tbm.asf.nabd-co.com` pointing to your server's IP
-   - Ports 80, 443, and 3001 open in firewall
+   - Ports 8081 (HTTP), 8443 (HTTPS), and 8080 (App) open in firewall
 
 2. **Required Configurations:**
    - Firebase project with Firestore enabled
@@ -102,7 +102,7 @@ The deployment script will:
 ## 🏗️ Architecture Overview
 
 ```
-Internet → Nginx (Port 80/443) → Node.js App (Port 3001)
+Internet → Nginx (Port 8081/8443) → Node.js App (Port 8080)
                 ↓
          SSL Termination
          Static File Serving
@@ -134,10 +134,10 @@ Internet → Nginx (Port 80/443) → Node.js App (Port 3001)
 
 After successful deployment:
 
-- **Primary URL**: https://tbm.asf.nabd-co.com
-- **HTTP Fallback**: http://tbm.asf.nabd-co.com:8080
-- **Direct Access**: http://your-server-ip:3001
-- **Health Check**: http://your-server-ip:3001/api/health
+- **Primary URL**: https://tbm.asf.nabd-co.com:8443
+- **HTTP Access**: http://tbm.asf.nabd-co.com:8081
+- **Direct Access**: http://your-server-ip:8080
+- **Health Check**: http://your-server-ip:8080/api/health
 
 ## 📊 Management Commands
 
@@ -180,10 +180,10 @@ docker-compose ps
 docker stats
 
 # Check application health
-curl http://localhost:3001/api/health
+curl http://localhost:8080/api/health
 
 # Check SSL certificate
-openssl s_client -connect tbm.asf.nabd-co.com:443 -servername tbm.asf.nabd-co.com
+openssl s_client -connect tbm.asf.nabd-co.com:8443 -servername tbm.asf.nabd-co.com
 ```
 
 ## 🔒 Security Considerations
@@ -210,8 +210,10 @@ openssl s_client -connect tbm.asf.nabd-co.com:443 -servername tbm.asf.nabd-co.co
 
 1. **Port Already in Use**
    ```bash
-   sudo netstat -tlnp | grep :80
-   sudo systemctl stop apache2  # if Apache is running
+   sudo netstat -tlnp | grep :8081
+   sudo netstat -tlnp | grep :8443
+   sudo netstat -tlnp | grep :8080
+   # Stop conflicting services if needed
    ```
 
 2. **SSL Certificate Issues**
@@ -274,9 +276,9 @@ tar -czf backup-$(date +%Y%m%d).tar.gz .env ssl/ logs/
 ## 📞 Support
 
 ### Health Checks
-- Application: `curl http://localhost:3001/api/health`
-- Nginx: `curl -I http://localhost:80`
-- SSL: `curl -I https://tbm.asf.nabd-co.com`
+- Application: `curl http://localhost:8080/api/health`
+- Nginx: `curl -I http://localhost:8081`
+- SSL: `curl -I https://tbm.asf.nabd-co.com:8443`
 
 ### Performance Monitoring
 ```bash
@@ -284,16 +286,16 @@ tar -czf backup-$(date +%Y%m%d).tar.gz .env ssl/ logs/
 docker stats
 
 # Application metrics
-curl http://localhost:3001/api/health
+curl http://localhost:8080/api/health
 
 # Nginx status (if enabled)
-curl http://localhost:80/nginx_status
+curl http://localhost:8081/nginx_status
 ```
 
 ## 🎯 Production Checklist
 
 - [ ] Domain DNS configured correctly
-- [ ] Firewall ports opened (80, 443, 3001)
+- [ ] Firewall ports opened (8081, 8443, 8080)
 - [ ] Environment variables configured
 - [ ] Firebase project setup
 - [ ] SSL certificates obtained
@@ -306,4 +308,4 @@ curl http://localhost:80/nginx_status
 
 ---
 
-**🎉 Your Devbench Manager is now deployed and ready to manage virtual machines at https://tbm.asf.nabd-co.com!**
+**🎉 Your Devbench Manager is now deployed and ready to manage virtual machines at https://tbm.asf.nabd-co.com:8443!**

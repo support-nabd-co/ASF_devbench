@@ -130,7 +130,7 @@ check_health() {
     sleep 10
     
     # Check if application is responding
-    if curl -f http://localhost:3001/api/health > /dev/null 2>&1; then
+    if curl -f http://localhost:8080/api/health > /dev/null 2>&1; then
         print_success "Application is healthy and responding"
     else
         print_error "Application health check failed"
@@ -140,10 +140,10 @@ check_health() {
     fi
     
     # Check if nginx is responding
-    if curl -f http://localhost:80 > /dev/null 2>&1; then
-        print_success "Nginx is responding on port 80"
+    if curl -f http://localhost:8081 > /dev/null 2>&1; then
+        print_success "Nginx is responding on port 8081"
     else
-        print_warning "Nginx is not responding on port 80"
+        print_warning "Nginx is not responding on port 8081"
     fi
 }
 
@@ -152,10 +152,10 @@ show_deployment_info() {
     print_success "🎉 Deployment completed successfully!"
     echo ""
     echo "📋 Deployment Information:"
-    echo "  • Application URL: https://${DOMAIN}"
-    echo "  • HTTP Fallback: http://${DOMAIN}:8080"
-    echo "  • Local Access: http://localhost:3001"
-    echo "  • API Health: http://localhost:3001/api/health"
+    echo "  • Application URL: https://${DOMAIN}:8443"
+    echo "  • HTTP Access: http://${DOMAIN}:8081"
+    echo "  • Direct App Access: http://localhost:8080"
+    echo "  • API Health: http://localhost:8080/api/health"
     echo ""
     echo "🔧 Management Commands:"
     echo "  • View logs: docker-compose logs -f"

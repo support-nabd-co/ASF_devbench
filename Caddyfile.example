@@ -1,0 +1,30 @@
+{
+    # Global options
+    admin off
+    auto_https disable_redirects
+}
+
+# OpenProject configuration
+openproject.nabd-co.com {
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    reverse_proxy openproject:8080
+}
+
+# Devbench Manager - Updated configuration
+tbm.asf.nabd-co.com {
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    reverse_proxy devbench-manager:3001
+}
+
+# Note: Replace the existing tbm.asf.nabd-co.com configuration in your Caddyfile
+# The old configuration was:
+# tbm.asf.nabd-co.com {
+#     tls {
+#         protocols tls1.2 tls1.3
+#     }
+#     reverse_proxy booked_booked_1:80
+# }
