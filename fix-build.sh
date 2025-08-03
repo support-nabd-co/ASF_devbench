@@ -66,8 +66,8 @@ if [ $? -eq 0 ]; then
         echo ""
         echo "📋 Service Information:"
         echo "  • Container: devbench-manager"
-        echo "  • Port: 8080"
-        echo "  • Health: http://localhost:8080/api/health"
+        echo "  • Port: 8082"
+        echo "  • Health: http://localhost:8082/api/health"
         echo ""
         echo "🔧 Next Steps:"
         echo "  1. Update your Caddyfile to point to devbench-manager:3001"
@@ -77,7 +77,7 @@ if [ $? -eq 0 ]; then
         
         # Check if container is healthy
         sleep 5
-        if curl -f http://localhost:8080/api/health > /dev/null 2>&1; then
+        if curl -f http://localhost:8082/api/health > /dev/null 2>&1; then
             print_success "✅ Application is healthy and responding!"
         else
             print_warning "⚠️  Application may still be starting up. Check logs with: docker-compose logs -f"
