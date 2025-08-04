@@ -158,9 +158,35 @@ EOF
     fi
 }
 
+# Function to clean npm and prepare frontend
+prepare_frontend() {
+    print_step 4 "Preparing Frontend for Docker Build"
+    
+    # Clean problematic lock files that can cause Docker build issues
+    print_status "Cleaning npm lock files..."
+    rm -f package-lock.json
+    rm -f frontend/package-lock.json
+    rm -f yarn.lock
+    rm -f frontend/yarn.lock
+    print_success "Lock files removed"
+    
+    # Verify frontend directory and package.json exist
+    if [ ! -d "frontend" ]; then
+        print_error "Frontend directory not found"
+        exit 1
+    fi
+    
+    if [ ! -f "frontend/package.json" ]; then
+        print_error "frontend/package.json not found"
+        exit 1
+    fi
+    
+    print_success "Frontend preparation completed"
+}
+
 # Function to clean Docker resources
 clean_docker_resources() {
-    print_step 4 "Cleaning Docker Resources"
+    print_step 5 "Cleaning Docker Resources"
     
     print_status "Stopping existing devbench containers..."
     docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
@@ -179,7 +205,7 @@ clean_docker_resources() {
 
 # Function to verify required files
 verify_required_files() {
-    print_step 5 "Verifying Required Files"
+    print_step 6 "Verifying Required Files"
     
     local required_files=("app.py" "requirements.txt" "Dockerfile" "docker-compose.yml")
     local missing_files=()
@@ -211,7 +237,7 @@ verify_required_files() {
 
 # Function to build and start Docker containers
 build_and_start_containers() {
-    print_step 6 "Building and Starting Docker Containers"
+    print_step 7 "Building and Starting Docker Containers"
     
     print_status "Building Docker images..."
     if command_exists docker-compose; then
@@ -255,7 +281,7 @@ build_and_start_containers() {
 
 # Function to display final status
 display_final_status() {
-    print_step 7 "Migration Complete!"
+    print_step 8 "Migration Complete!"
     
     echo ""
     echo "🎉 ASF Devbench Manager has been successfully migrated to Flask!"
@@ -324,6 +350,7 @@ main() {
     check_prerequisites
     backup_old_files
     setup_flask_environment
+    prepare_frontend
     clean_docker_resources
     verify_required_files
     build_and_start_containers
