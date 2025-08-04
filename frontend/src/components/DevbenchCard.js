@@ -63,13 +63,6 @@ function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isChe
     }
   };
 
-  // Format creation date
-  const formatDate = (date) => {
-    if (!date) return 'Unknown';
-    const dateObj = date instanceof Date ? date : new Date(date);
-    return dateObj.toLocaleString();
-  };
-
   return (
     <div className="bg-white overflow-hidden shadow rounded-lg">
       <div className="p-5">
@@ -83,7 +76,10 @@ function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isChe
         </div>
         
         <div className="mt-2 text-sm text-gray-500">
-          <p>Created: {formatDate(devbench.createdAt)}</p>
+          <p>Created: {formatDate(devbench.created_at)}</p>
+          {devbench.updated_at && devbench.updated_at !== devbench.created_at && (
+            <p>Last updated: {formatDate(devbench.updated_at)}</p>
+          )}
         </div>
 
         {devbench.details && (
