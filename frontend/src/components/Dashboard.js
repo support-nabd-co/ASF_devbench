@@ -63,7 +63,7 @@ function Dashboard({ onLogout }) {
     try {
       const response = await axios.post(
         '/api/devbenches/create',
-        { name: devbenchName },
+        { devbenchName: devbenchName },
         { withCredentials: true }
       );
 
