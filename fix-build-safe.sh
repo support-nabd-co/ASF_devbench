@@ -130,6 +130,35 @@ setup_flask_environment() {
     # Set proper permissions for data directory
     # This ensures the Docker container can write to it
     chmod 755 data
+    
+    # On Windows/WSL, we need to ensure the directory is writable
+    # Create a test file to verify write permissions
+    if touch data/.test_write 2>/dev/null; then
+        rm -f data/.test_write
+        print_success "Data directory has proper write permissions"
+    else
+        print_warning "Data directory may have permission issues, attempting to fix..."
+        # Try to fix permissions on Windows/WSL
+        if command_exists wsl; then
+            # We're likely in WSL, use Linux permissions
+            sudo chown -R $(id -u):$(id -g) data 2>/dev/null || true
+            chmod 777 data  # More permissive for Docker volume
+        else
+            # On native Windows, try to make it writable
+            chmod 777 data
+        fi
+        
+        # Test again
+        if touch data/.test_write 2>/dev/null; then
+            rm -f data/.test_write
+            print_success "Fixed data directory permissions"
+        else
+            print_error "Unable to fix data directory permissions"
+            print_error "Please run: chmod 777 data"
+            exit 1
+        fi
+    fi
+    
     print_success "Set proper permissions for data directory"
     
     # Copy Flask environment template if .env doesn't exist

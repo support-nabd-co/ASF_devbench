@@ -53,9 +53,6 @@ RUN mkdir -p /app/data && \
     chown -R flask:flask /app && \
     chmod -R 755 /app/data
 
-# Switch to flask user
-USER flask
-
 # Expose port
 EXPOSE 3001
 
@@ -68,5 +65,16 @@ ENV FLASK_ENV=production
 ENV DATABASE_URL=sqlite:///data/devbench.db
 ENV PYTHONPATH=/app
 
-# Start the Flask application with database initialization
-CMD ["python", "app.py"]
+# Create a startup script that ensures proper permissions
+RUN echo '#!/bin/bash\n\
+# Ensure data directory exists and has proper permissions\n\
+mkdir -p /app/data\n\
+chown -R flask:flask /app/data\n\
+chmod -R 755 /app/data\n\
+\n\
+# Switch to flask user and start the application\n\
+exec su flask -c "python /app/app.py"\n\
+' > /app/start.sh && chmod +x /app/start.sh
+
+# Start the Flask application with proper permission handling
+CMD ["/app/start.sh"]
