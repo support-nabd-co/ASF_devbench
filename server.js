@@ -2,7 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const admin = require('firebase-admin');
-const SSH = require('ssh2-promise');
+const { exec } = require('child_process');
+const { promisify } = require('util');
 const path = require('path');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -11,6 +12,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Promisify exec for async/await usage
+const execAsync = promisify(exec);
+
 // JWT Secret - In production, use a secure random string from environment variables
 const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
 
@@ -18,30 +22,39 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-i
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-this-password';
 
-// SSH Configuration
-const SSH_CONFIG = {
-  host: 'asf-tb.duckdns.org',
-  username: 'asf',
-  password: 'ASF'
-};
+// Script path - now local instead of SSH
+const PROVISION_SCRIPT_PATH = './provision_vm.sh';
 
-// Initialize Firebase Admin SDK
-// Assumes __firebase_config and __app_id are available as global variables or environment variables
+// Initialize Firebase Admin SDK with better error handling
 let db;
 try {
-  const firebaseConfig = global.__firebase_config || JSON.parse(process.env.FIREBASE_CONFIG || '{}');
-  const appId = global.__app_id || process.env.APP_ID || 'default-app';
+  // Try to get Firebase config from environment variable
+  const firebaseConfigStr = process.env.FIREBASE_CONFIG;
+  const appId = process.env.APP_ID || 'devbench-app';
+  
+  if (!firebaseConfigStr) {
+    throw new Error('FIREBASE_CONFIG environment variable is not set');
+  }
+  
+  const firebaseConfig = JSON.parse(firebaseConfigStr);
+  
+  if (!firebaseConfig.project_id) {
+    throw new Error('Firebase config is missing project_id');
+  }
   
   admin.initializeApp({
     credential: admin.credential.cert(firebaseConfig),
-    databaseURL: firebaseConfig.databaseURL
+    projectId: firebaseConfig.project_id
   });
   
   db = admin.firestore();
   console.log('✅ Firebase Admin SDK initialized successfully');
+  console.log(`📊 Using Firestore project: ${firebaseConfig.project_id}`);
+  console.log(`🏷️  App ID: ${appId}`);
 } catch (error) {
   console.error('❌ Failed to initialize Firebase Admin SDK:', error.message);
-  console.log('⚠️  Make sure __firebase_config and __app_id are properly configured');
+  console.log('⚠️  Please check your FIREBASE_CONFIG environment variable');
+  console.log('💡 Expected format: JSON string with service account credentials');
 }
 
 // Middleware
@@ -130,7 +143,7 @@ app.post('/api/login', async (req, res) => {
 
     // Check if user exists in Firestore
     if (db) {
-      const appId = global.__app_id || process.env.APP_ID || 'default-app';
+      const appId = process.env.APP_ID || 'devbench-app';
       const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
       const userDoc = await userRef.get();
 
@@ -203,7 +216,7 @@ app.get('/api/devbenches', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Database connection not available' });
     }
 
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     const devbenchesRef = db.collection('artifacts').doc(appId)
       .collection('users').doc(username)
       .collection('devbenches');
@@ -230,7 +243,7 @@ app.get('/api/devbenches', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/devbenches/create
- * Create a new devbench by triggering the remote shell script via SSH
+ * Create a new devbench by triggering the local provision_vm.sh script
  * Updates Firestore with real-time status updates
  */
 app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
@@ -248,7 +261,7 @@ app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
     }
 
     const trimmedDevbenchName = devbenchName.trim();
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     
     // Create initial devbench document in Firestore
     const devbenchesRef = db.collection('artifacts').doc(appId)
@@ -265,8 +278,8 @@ app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
 
     console.log(`✅ Created devbench document: ${newDevbenchRef.id} for user: ${username}`);
 
-    // Execute SSH command asynchronously
-    executeSSHCommand(newDevbenchRef, trimmedDevbenchName, username);
+    // Execute local provision_vm.sh script asynchronously
+    executeLocalScript(newDevbenchRef, trimmedDevbenchName, username);
 
     // Return immediate response
     res.json({
@@ -285,43 +298,43 @@ app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
 });
 
 /**
- * Execute SSH command to provision VM
+ * Execute local provision_vm.sh script to provision VM
  * Updates Firestore document with results
  */
-async function executeSSHCommand(devbenchRef, devbenchName, username) {
-  let ssh;
-  
+async function executeLocalScript(devbenchRef, devbenchName, username) {
   try {
-    console.log(`🔄 Starting SSH connection for devbench: ${devbenchName}`);
+    console.log(`🔄 Starting local script execution for devbench: ${devbenchName}`);
     
-    // Establish SSH connection
-    ssh = new SSH(SSH_CONFIG);
-    await ssh.connect();
-    console.log(`✅ SSH connected successfully`);
-
-    // Execute the provision script
-    const command = `./provision_vm.sh ${devbenchName}`;
+    // Create combined devbench name: <username>+<devbench name>
+    const combinedDevbenchName = `${username}+${devbenchName}`;
+    
+    // Execute the provision script with new argument format
+    const command = `${PROVISION_SCRIPT_PATH} create ${combinedDevbenchName}`;
     console.log(`🔄 Executing command: ${command}`);
     
-    const result = await ssh.exec(command);
-    console.log(`✅ SSH command completed for devbench: ${devbenchName}`);
-    console.log('📄 Command output:', result);
+    const { stdout, stderr } = await execAsync(command);
+    console.log(`✅ Local script execution completed for devbench: ${devbenchName}`);
+    console.log('📄 Command output:', stdout);
+    
+    if (stderr) {
+      console.warn('⚠️ Script stderr:', stderr);
+    }
 
     // Parse the script output
     let details = {};
     try {
       // Try to parse as JSON first
-      details = JSON.parse(result);
+      details = JSON.parse(stdout);
     } catch (parseError) {
       // If not JSON, treat as plain text and extract useful information
-      const lines = result.split('\n').filter(line => line.trim().length > 0);
+      const lines = stdout.split('\n').filter(line => line.trim().length > 0);
       details = {
-        output: result,
+        output: stdout,
         summary: lines[lines.length - 1] || 'VM provisioned successfully'
       };
 
-      // Try to extract IP address if present
-      const ipMatch = result.match(/(\d+\.\d+\.\d+\.\d+)/);
+      // Try to extract IP address from output
+      const ipMatch = stdout.match(/(\d+\.\d+\.\d+\.\d+)/);
       if (ipMatch) {
         details.ip = ipMatch[1];
         details.sshCommand = `ssh user@${ipMatch[1]}`;
@@ -331,41 +344,160 @@ async function executeSSHCommand(devbenchRef, devbenchName, username) {
     // Update Firestore document with success
     await devbenchRef.update({
       status: 'Active',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       details: details,
-      completedAt: admin.firestore.FieldValue.serverTimestamp()
+      combinedName: combinedDevbenchName
     });
 
     console.log(`✅ Updated devbench ${devbenchName} status to Active`);
 
   } catch (error) {
-    console.error(`❌ SSH execution failed for devbench: ${devbenchName}`, error);
+    console.error(`❌ Local script execution failed for devbench: ${devbenchName}`, error);
 
     // Update Firestore document with error
     try {
       await devbenchRef.update({
         status: 'Error',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        error: error.message,
         details: {
           error: error.message,
-          errorDetails: error.toString()
-        },
-        errorAt: admin.firestore.FieldValue.serverTimestamp()
+          stderr: error.stderr || 'Unknown error occurred'
+        }
       });
-      console.log(`✅ Updated devbench ${devbenchName} status to Error`);
     } catch (updateError) {
       console.error(`❌ Failed to update devbench status to Error:`, updateError);
     }
-  } finally {
-    // Close SSH connection
-    if (ssh) {
-      try {
-        await ssh.close();
-        console.log(`✅ SSH connection closed for devbench: ${devbenchName}`);
-      } catch (closeError) {
-        console.error(`❌ Error closing SSH connection:`, closeError);
-      }
-    }
   }
 }
+
+/**
+ * POST /api/devbenches/activate
+ * Activate a devbench by calling the provision script with activate command
+ */
+app.post('/api/devbenches/activate', authenticateToken, async (req, res) => {
+  try {
+    const { devbenchId } = req.body;
+    const username = req.user.username;
+
+    if (!devbenchId) {
+      return res.status(400).json({ error: 'Devbench ID is required' });
+    }
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = process.env.APP_ID || 'devbench-app';
+    const devbenchRef = db.collection('artifacts').doc(appId)
+      .collection('users').doc(username)
+      .collection('devbenches').doc(devbenchId);
+
+    // Get devbench document
+    const devbenchDoc = await devbenchRef.get();
+    if (!devbenchDoc.exists) {
+      return res.status(404).json({ error: 'Devbench not found' });
+    }
+
+    const devbenchData = devbenchDoc.data();
+    const combinedName = devbenchData.combinedName || `${username}+${devbenchData.name}`;
+
+    // Execute activate command
+    const command = `${PROVISION_SCRIPT_PATH} activate ${combinedName}`;
+    console.log(`🔄 Executing activate command: ${command}`);
+
+    const { stdout, stderr } = await execAsync(command);
+    console.log(`✅ Activate command completed for devbench: ${devbenchData.name}`);
+    console.log('📄 Command output:', stdout);
+
+    // Update devbench status
+    await devbenchRef.update({
+      status: 'Active',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastActivated: admin.firestore.FieldValue.serverTimestamp(),
+      activateOutput: stdout
+    });
+
+    res.json({
+      success: true,
+      message: 'Devbench activated successfully',
+      output: stdout
+    });
+
+  } catch (error) {
+    console.error('❌ Error activating devbench:', error);
+    res.status(500).json({ 
+      error: 'Failed to activate devbench',
+      details: error.message 
+    });
+  }
+});
+
+/**
+ * GET /api/devbenches/status/:devbenchId
+ * Get the current status of a devbench by calling the provision script
+ */
+app.get('/api/devbenches/status/:devbenchId', authenticateToken, async (req, res) => {
+  try {
+    const { devbenchId } = req.params;
+    const username = req.user.username;
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = process.env.APP_ID || 'devbench-app';
+    const devbenchRef = db.collection('artifacts').doc(appId)
+      .collection('users').doc(username)
+      .collection('devbenches').doc(devbenchId);
+
+    // Get devbench document
+    const devbenchDoc = await devbenchRef.get();
+    if (!devbenchDoc.exists) {
+      return res.status(404).json({ error: 'Devbench not found' });
+    }
+
+    const devbenchData = devbenchDoc.data();
+    const combinedName = devbenchData.combinedName || `${username}+${devbenchData.name}`;
+
+    // Execute status command
+    const command = `${PROVISION_SCRIPT_PATH} status ${combinedName}`;
+    console.log(`🔄 Executing status command: ${command}`);
+
+    const { stdout, stderr } = await execAsync(command);
+    console.log(`✅ Status command completed for devbench: ${devbenchData.name}`);
+    console.log('📄 Status output:', stdout);
+
+    // Parse status (should return "active" or "not active")
+    const statusOutput = stdout.trim().toLowerCase();
+    const isActive = statusOutput.includes('active') && !statusOutput.includes('not active');
+
+    // Update devbench with current status
+    await devbenchRef.update({
+      status: isActive ? 'Active' : 'Inactive',
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastStatusCheck: admin.firestore.FieldValue.serverTimestamp(),
+      statusOutput: stdout
+    });
+
+    res.json({
+      devbenchId: devbenchId,
+      name: devbenchData.name,
+      combinedName: combinedName,
+      status: isActive ? 'Active' : 'Inactive',
+      isActive: isActive,
+      statusOutput: stdout,
+      lastChecked: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error checking devbench status:', error);
+    res.status(500).json({ 
+      error: 'Failed to check devbench status',
+      details: error.message 
+    });
+  }
+});
 
 // User Management API Endpoints (Admin only)
 
@@ -379,7 +511,7 @@ app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Database connection not available' });
     }
 
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     const usersRef = db.collection('artifacts').doc(appId).collection('users');
     const snapshot = await usersRef.orderBy('createdAt', 'desc').get();
     
@@ -419,7 +551,7 @@ app.post('/api/admin/users', authenticateAdmin, async (req, res) => {
     }
 
     const trimmedUsername = username.trim();
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
     
     // Check if user already exists
@@ -467,7 +599,7 @@ app.put('/api/admin/users/:username', authenticateAdmin, async (req, res) => {
       return res.status(500).json({ error: 'Database connection not available' });
     }
 
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
     
     // Check if user exists
@@ -515,7 +647,7 @@ app.delete('/api/admin/users/:username', authenticateAdmin, async (req, res) => 
       return res.status(500).json({ error: 'Database connection not available' });
     }
 
-    const appId = global.__app_id || process.env.APP_ID || 'default-app';
+    const appId = process.env.APP_ID || 'devbench-app';
     const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
     
     // Check if user exists

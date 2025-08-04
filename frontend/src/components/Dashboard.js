@@ -17,6 +17,9 @@ function Dashboard({ onLogout }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [notification, setNotification] = useState(null);
+  const [creatingDevbench, setCreatingDevbench] = useState(false);
+  const [activatingDevbench, setActivatingDevbench] = useState(null);
+  const [checkingStatus, setCheckingStatus] = useState(null);
 
   // Extract username from JWT token
   useEffect(() => {
@@ -172,6 +175,70 @@ function Dashboard({ onLogout }) {
     }
   };
 
+  // Handle devbench activation
+  const handleActivateDevbench = async (devbenchId, devbenchName) => {
+    setActivatingDevbench(devbenchId);
+    setError('');
+    setNotification(null);
+
+    try {
+      const token = localStorage.getItem('devbench_token');
+      const response = await axios.post('/api/devbenches/activate', 
+        { devbenchId },
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showNotification(`Devbench "${devbenchName}" activated successfully!`, 'success');
+        // Refresh the list to show updated status
+        fetchDevbenches();
+      } else {
+        setError(data.error || 'Failed to activate devbench');
+      }
+    } catch (error) {
+      console.error('Error activating devbench:', error);
+      setError('Network error. Please try again.');
+    } finally {
+      setActivatingDevbench(null);
+    }
+  };
+
+  // Handle devbench status check
+  const handleCheckStatus = async (devbenchId, devbenchName) => {
+    setCheckingStatus(devbenchId);
+
+    try {
+      const token = localStorage.getItem('devbench_token');
+      const response = await axios.get(`/api/devbenches/status/${devbenchId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showNotification(`Status check completed for "${devbenchName}": ${data.status}`, 'success');
+        // Refresh the list to show updated status
+        fetchDevbenches();
+      } else {
+        setError(data.error || 'Failed to check devbench status');
+      }
+    } catch (error) {
+      console.error('Error checking status:', error);
+      setError('Network error. Please try again.');
+    } finally {
+      setCheckingStatus(null);
+    }
+  };
+
   // Show notification
   const showNotification = (message, type = 'info') => {
     setNotification({ message, type });
@@ -200,13 +267,34 @@ function Dashboard({ onLogout }) {
       <header className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Devbench Manager</h1>
-              <p className="text-sm text-gray-600">Welcome back, {user?.username}</p>
+            <div className="flex items-center space-x-4">
+              {/* NABD Solutions Logo */}
+              <img 
+                src="/logo-nabd.png" 
+                alt="NABD Solutions" 
+                className="h-10 w-auto"
+                onError={(e) => {
+                  // Fallback if logo doesn't exist
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'inline-block';
+                }}
+              />
+              <div 
+                className="hidden bg-blue-600 text-white px-3 py-1 rounded font-bold text-sm"
+                style={{ display: 'none' }}
+              >
+                NABD
+              </div>
+              
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Devbench Manager</h1>
+                <p className="text-sm text-gray-600">Welcome back, {user?.username}</p>
+              </div>
             </div>
+            
             <button
               onClick={handleLogout}
-              className="btn-secondary"
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               Logout
             </button>
@@ -215,7 +303,7 @@ function Dashboard({ onLogout }) {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
         {/* Error Message */}
         {error && (
           <div className="mb-6 bg-error-50 border border-error-200 text-error-700 px-4 py-3 rounded-lg">
@@ -256,7 +344,87 @@ function Dashboard({ onLogout }) {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {devbenches.map((devbench) => (
-                <DevbenchCard key={devbench.id} devbench={devbench} />
+                <div key={devbench.id} className="bg-white rounded-lg shadow-sm p-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3">
+                        <h3 className="text-lg font-medium text-gray-900">{devbench.name}</h3>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${devbench.status === 'Active' ? 'bg-green-100 text-green-800' : devbench.status === 'Inactive' ? 'bg-gray-100 text-gray-800' : devbench.status === 'Provisioning' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
+                          {devbench.status || 'Unknown'}
+                        </span>
+                      </div>
+                      
+                      <div className="mt-2 text-sm text-gray-600 space-y-1">
+                        <p><span className="font-medium">Created:</span> {devbench.createdAt}</p>
+                        {devbench.updatedAt && (
+                          <p><span className="font-medium">Updated:</span> {devbench.updatedAt}</p>
+                        )}
+                        {devbench.combinedName && (
+                          <p><span className="font-medium">Full Name:</span> {devbench.combinedName}</p>
+                        )}
+                        {devbench.details?.ip && (
+                          <p><span className="font-medium">IP Address:</span> {devbench.details.ip}</p>
+                        )}
+                        {devbench.details?.sshCommand && (
+                          <p><span className="font-medium">SSH Command:</span> 
+                            <code className="ml-1 px-2 py-1 bg-gray-100 rounded text-xs">{devbench.details.sshCommand}</code>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex space-x-2">
+                      {/* Check Status Button */}
+                      <button
+                        onClick={() => handleCheckStatus(devbench.id, devbench.name)}
+                        disabled={checkingStatus === devbench.id}
+                        className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {checkingStatus === devbench.id ? (
+                          <div className="flex items-center">
+                            <svg className="animate-spin -ml-1 mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Checking...
+                          </div>
+                        ) : (
+                          'Check Status'
+                        )}
+                      </button>
+
+                      {/* Activate Button */}
+                      <button
+                        onClick={() => handleActivateDevbench(devbench.id, devbench.name)}
+                        disabled={activatingDevbench === devbench.id || devbench.status === 'Active'}
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {activatingDevbench === devbench.id ? (
+                          <div className="flex items-center">
+                            <svg className="animate-spin -ml-1 mr-1 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            Activating...
+                          </div>
+                        ) : devbench.status === 'Active' ? (
+                          'Active'
+                        ) : (
+                          'Activate'
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Error Details */}
+                  {devbench.error && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-sm text-red-700">
+                        <span className="font-medium">Error:</span> {devbench.error}
+                      </p>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           )}
