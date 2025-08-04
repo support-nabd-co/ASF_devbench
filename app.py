@@ -126,6 +126,7 @@ class VM(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     details = db.Column(db.Text)  # JSON string for additional details
+    logs = db.Column(db.Text, default='')  # Store logs as plain text
     
     def to_dict(self):
         """Convert VM to dictionary"""
@@ -137,7 +138,8 @@ class VM(db.Model):
             'username': self.owner.username if self.owner else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
-            'details': self.details
+            'details': self.details,
+            'has_logs': bool(self.logs)
         }
 
 @login_manager.user_loader
@@ -356,6 +358,28 @@ def activate_devbench():
         db.session.rollback()
         return jsonify({'error': f'Failed to activate devbench: {str(e)}'}), 500
 
+@app.route('/api/devbenches/<int:vm_id>/logs', methods=['GET'])
+@login_required
+def get_devbench_logs(vm_id):
+    """Get logs for a specific devbench"""
+    try:
+        vm = VM.query.get_or_404(vm_id)
+        
+        # Check if the current user owns this VM or is an admin
+        if vm.user_id != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Unauthorized'}), 403
+            
+        # Return logs as an array of lines
+        logs = vm.logs.split('\n') if vm.logs else []
+        return jsonify({
+            'logs': logs,
+            'status': vm.status
+        })
+        
+    except Exception as e:
+        print(f"Error fetching logs: {e}")
+        return jsonify({'error': 'Failed to fetch logs'}), 500
+
 # Admin endpoints
 @app.route('/api/admin/users', methods=['GET'])
 @admin_required
@@ -419,52 +443,69 @@ def delete_user(user_id):
 # VM provisioning functions
 def execute_provision_script(vm_id, vm_name, username):
     """Execute VM provision script in background thread"""
-    def run_script():
+    def run():
+        vm = VM.query.get(vm_id)
+        if not vm:
+            print(f"VM {vm_id} not found")
+            return
+            
         try:
-            vm = VM.query.get(vm_id)
-            if not vm:
-                return
+            # Initialize logs
+            vm.logs = f"[{datetime.utcnow().isoformat()}] Starting VM creation for {vm_name}"
+            db.session.commit()
             
-            print(f"🚀 Starting VM provisioning for: {vm_name}")
-            
-            # Execute the provision script
-            script_path = './provision_vm.sh'
-            if not os.path.exists(script_path):
-                raise FileNotFoundError(f"Provision script not found: {script_path}")
-            
-            result = subprocess.run(
+            # Run the provision script
+            script_path = os.environ.get('PROVISION_SCRIPT_PATH', './provision_vm.sh')
+            process = subprocess.Popen(
                 [script_path, vm_name, username],
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 minute timeout
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
             )
             
-            # Update VM status based on result
-            vm = VM.query.get(vm_id)  # Refresh from DB
-            if vm:
-                if result.returncode == 0:
-                    vm.status = 'Running'
-                    vm.details = f"Successfully created. Output: {result.stdout}"
-                    print(f"✅ VM {vm_name} created successfully")
-                else:
-                    vm.status = 'Failed'
-                    vm.details = f"Creation failed. Error: {result.stderr}"
-                    print(f"❌ VM {vm_name} creation failed: {result.stderr}")
+            # Stream output to logs
+            for line in process.stdout:
+                vm = VM.query.get(vm_id)  # Refresh VM object
+                if not vm:
+                    break
+                    
+                timestamp = datetime.utcnow().isoformat()
+                log_entry = f"[{timestamp}] {line}"
+                vm.logs = (vm.logs or '') + '\n' + log_entry
                 
-                vm.updated_at = datetime.utcnow()
+                # Update status if we detect it in the output
+                if 'status:' in line.lower():
+                    status = line.lower().split('status:')[-1].strip()
+                    vm.status = status.capitalize()
+                
+                db.session.commit()
+                
+                # Small delay to prevent database lock
+                time.sleep(0.1)
+                
+            process.wait()
+            
+            # Final status update
+            vm = VM.query.get(vm_id)
+            if vm:
+                if process.returncode == 0:
+                    vm.status = 'Ready'
+                    vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] VM creation completed successfully"
+                else:
+                    vm.status = 'Error'
+                    vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] VM creation failed with code {process.returncode}"
                 db.session.commit()
                 
         except Exception as e:
-            print(f"❌ Error in provision script: {e}")
+            print(f"Error in provision script: {e}")
             vm = VM.query.get(vm_id)
             if vm:
-                vm.status = 'Failed'
-                vm.details = f"Script execution error: {str(e)}"
-                vm.updated_at = datetime.utcnow()
+                vm.status = 'Error'
+                vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] Error: {str(e)}"
                 db.session.commit()
     
-    # Run in background thread
-    thread = threading.Thread(target=run_script)
+    # Start the background thread
+    thread = threading.Thread(target=run)
     thread.daemon = True
     thread.start()
 

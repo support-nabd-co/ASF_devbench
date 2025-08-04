@@ -4,17 +4,27 @@ import React from 'react';
  * DevbenchCard component that displays individual devbench information
  * Shows name, status, creation time, and details in a responsive card layout
  */
-function DevbenchCard({ devbench }) {
-  const { name, status, createdAt, details = {} } = devbench;
-
-  // Format creation date
-  const formatDate = (date) => {
-    if (!date) return 'Unknown';
-    const dateObj = date instanceof Date ? date : new Date(date);
-    return dateObj.toLocaleString();
+function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isCheckingStatus, onViewLogs, formatDate }) {
+  const getStatusColor = (status) => {
+    switch (status?.toLowerCase()) {
+      case 'running':
+      case 'ready':
+        return 'bg-green-100 text-green-800';
+      case 'creating':
+      case 'provisioning':
+      case 'activating':
+        return 'bg-blue-100 text-blue-800';
+      case 'error':
+      case 'failed':
+        return 'bg-red-100 text-red-800';
+      case 'stopped':
+      case 'deleted':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-yellow-100 text-yellow-800';
+    }
   };
 
-  // Get status styling
   const getStatusClass = (status) => {
     switch (status?.toLowerCase()) {
       case 'creating':
@@ -28,7 +38,6 @@ function DevbenchCard({ devbench }) {
     }
   };
 
-  // Get status icon
   const getStatusIcon = (status) => {
     switch (status?.toLowerCase()) {
       case 'creating':
@@ -54,101 +63,89 @@ function DevbenchCard({ devbench }) {
     }
   };
 
+  // Format creation date
+  const formatDate = (date) => {
+    if (!date) return 'Unknown';
+    const dateObj = date instanceof Date ? date : new Date(date);
+    return dateObj.toLocaleString();
+  };
+
   return (
-    <div className="card hover:shadow-lg transition-shadow duration-200">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex-1">
-          <h3 className="text-lg font-semibold text-gray-900 truncate" title={name}>
-            {name}
+    <div className="bg-white overflow-hidden shadow rounded-lg">
+      <div className="p-5">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg leading-6 font-medium text-gray-900">
+            {devbench.name}
           </h3>
-          <p className="text-sm text-gray-500 mt-1">
-            Created {formatDate(createdAt)}
-          </p>
+          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(devbench.status)}`}>
+            {devbench.status || 'Unknown'}
+          </span>
         </div>
         
-        {/* Status Badge */}
-        <span className={`${getStatusClass(status)} flex items-center ml-2`}>
-          {getStatusIcon(status)}
-          <span className="ml-1 capitalize">{status || 'Unknown'}</span>
-        </span>
+        <div className="mt-2 text-sm text-gray-500">
+          <p>Created: {formatDate(devbench.createdAt)}</p>
+        </div>
+
+        {devbench.details && (
+          <div className="mt-2">
+            <p className="text-sm text-gray-600">{devbench.details}</p>
+          </div>
+        )}
       </div>
 
-      {/* Details Section */}
-      <div className="space-y-3">
-        {/* IP Address */}
-        {details.ip && (
-          <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center">
-              <svg className="w-5 h-5 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9v-9m0-9v9" />
-              </svg>
-              <span className="text-sm font-medium text-gray-700">IP Address</span>
-            </div>
-            <code className="text-sm bg-white px-2 py-1 rounded border font-mono">
-              {details.ip}
-            </code>
-          </div>
-        )}
+      <div className="bg-gray-50 px-5 py-3 flex justify-between items-center">
+        <div className="flex space-x-2">
+          <button
+            onClick={() => onActivate(devbench.id, devbench.name)}
+            disabled={isActivating === devbench.id || devbench.status === 'Running'}
+            className={`inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white ${
+              devbench.status === 'Running' || isActivating === devbench.id
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-primary-600 hover:bg-primary-700'
+            }`}
+          >
+            {isActivating === devbench.id ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Activating...
+              </>
+            ) : (
+              'Activate'
+            )}
+          </button>
 
-        {/* SSH Command */}
-        {details.sshCommand && (
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <div className="flex items-center mb-2">
-              <svg className="w-5 h-5 text-gray-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
-              </svg>
-              <span className="text-sm font-medium text-gray-700">SSH Command</span>
-            </div>
-            <code className="text-xs bg-white px-2 py-1 rounded border font-mono block break-all">
-              {details.sshCommand}
-            </code>
-          </div>
-        )}
+          <button
+            onClick={() => onCheckStatus(devbench.id)}
+            disabled={isCheckingStatus === devbench.id}
+            className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            {isCheckingStatus === devbench.id ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Checking...
+              </>
+            ) : (
+              'Check Status'
+            )}
+          </button>
+        </div>
 
-        {/* Summary/Output */}
-        {details.summary && (
-          <div className="p-3 bg-blue-50 rounded-lg">
-            <div className="flex items-center mb-2">
-              <svg className="w-5 h-5 text-blue-400 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm font-medium text-blue-700">Status</span>
-            </div>
-            <p className="text-sm text-blue-600">{details.summary}</p>
-          </div>
-        )}
-
-        {/* Error Details */}
-        {status === 'Error' && details.error && (
-          <div className="p-3 bg-error-50 rounded-lg">
-            <div className="flex items-center mb-2">
-              <svg className="w-5 h-5 text-error-400 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span className="text-sm font-medium text-error-700">Error Details</span>
-            </div>
-            <p className="text-sm text-error-600">{details.error}</p>
-          </div>
-        )}
-
-        {/* Creating Status */}
-        {status === 'Creating' && (
-          <div className="p-3 bg-yellow-50 rounded-lg">
-            <div className="flex items-center">
-              <svg className="w-5 h-5 text-yellow-400 mr-2 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              <span className="text-sm text-yellow-700">Provisioning virtual machine...</span>
-            </div>
-          </div>
-        )}
-
-        {/* No details available */}
-        {status === 'Active' && !details.ip && !details.sshCommand && !details.summary && (
-          <div className="p-3 bg-gray-50 rounded-lg text-center">
-            <span className="text-sm text-gray-500">VM is active but details are not available</span>
-          </div>
+        {devbench.has_logs && (
+          <button
+            onClick={() => onViewLogs(devbench.id)}
+            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-primary-700 bg-primary-100 hover:bg-primary-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          >
+            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            View Logs
+          </button>
         )}
       </div>
     </div>

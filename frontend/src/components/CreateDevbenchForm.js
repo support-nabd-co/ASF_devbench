@@ -87,9 +87,12 @@ function CreateDevbenchForm({ onCreate, onCancel }) {
             id="devbenchName"
             type="text"
             value={devbenchName}
-            onChange={(e) => setDevbenchName(e.target.value)}
+            onChange={(e) => {
+              console.log('Input changed:', e.target.value);
+              setDevbenchName(e.target.value);
+            }}
             placeholder="e.g., my-development-vm"
-            className="input-field"
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
             disabled={isCreating}
             autoComplete="off"
           />

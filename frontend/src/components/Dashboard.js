@@ -16,6 +16,8 @@ function Dashboard({ onLogout }) {
   const [creatingDevbench, setCreatingDevbench] = useState(false);
   const [activatingDevbench, setActivatingDevbench] = useState(null);
   const [checkingStatus, setCheckingStatus] = useState(null);
+  const [creationLogs, setCreationLogs] = useState({}); // Track logs for each devbench
+  const [activeLogs, setActiveLogs] = useState(null); // Currently viewed logs
 
   // Fetch current user and their devbenches
   useEffect(() => {
@@ -64,6 +66,35 @@ function Dashboard({ onLogout }) {
         { name: devbenchName },
         { withCredentials: true }
       );
+
+      // Initialize logs for this devbench
+      const newDevbench = response.data;
+      setCreationLogs(prev => ({
+        ...prev,
+        [newDevbench.id]: [`[${new Date().toISOString()}] Creation started...`]
+      }));
+      setActiveLogs(newDevbench.id);
+
+      // Start polling for logs
+      const logInterval = setInterval(async () => {
+        try {
+          const logResponse = await axios.get(`/api/devbenches/${newDevbench.id}/logs`, { 
+            withCredentials: true 
+          });
+          
+          if (logResponse.data && logResponse.data.logs) {
+            setCreationLogs(prev => ({
+              ...prev,
+              [newDevbench.id]: logResponse.data.logs
+            }));
+          }
+        } catch (error) {
+          console.error('Error fetching logs:', error);
+        }
+      }, 2000); // Poll every 2 seconds
+
+      // Clean up interval when component unmounts or devbench is created
+      setTimeout(() => clearInterval(logInterval), 600000); // Stop after 10 minutes
 
       showNotification('Devbench creation started successfully!', 'success');
       return response.data;
@@ -269,6 +300,41 @@ function Dashboard({ onLogout }) {
           )}
         </div>
       </main>
+
+      {/* Log Viewer Modal */}
+      {activeLogs !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[80vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">Devbench Creation Logs</h3>
+              <button
+                onClick={() => setActiveLogs(null)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="bg-black text-green-400 p-4 rounded font-mono text-sm overflow-auto flex-1">
+              {creationLogs[activeLogs]?.map((log, index) => (
+                <div key={index} className="whitespace-pre-wrap">{log}</div>
+              ))}
+              {!creationLogs[activeLogs]?.length && (
+                <div>No logs available yet. Please wait...</div>
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={() => setActiveLogs(null)}
+                className="btn-secondary"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Devbench Modal */}
       {creatingDevbench && (
