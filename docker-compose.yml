@@ -17,7 +17,7 @@ services:
       - PORT=3001
       
       # Database Configuration - Using in-memory SQLite for testing
-      - DATABASE_URL=sqlite:///:memory:
+      - "DATABASE_URL=sqlite:///:memory:"
       
       # Admin Configuration
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
