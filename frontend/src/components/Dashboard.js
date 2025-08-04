@@ -193,18 +193,20 @@ function Dashboard({ onLogout }) {
         }
       );
 
-      const data = await response.json();
-
-      if (response.ok) {
+      if (response.status === 200) {
         showNotification(`Devbench "${devbenchName}" activated successfully!`, 'success');
         // Refresh the list to show updated status
         fetchDevbenches();
       } else {
-        setError(data.error || 'Failed to activate devbench');
+        setError(response.data.error || 'Failed to activate devbench');
       }
     } catch (error) {
       console.error('Error activating devbench:', error);
-      setError('Network error. Please try again.');
+      if (error.response?.data?.error) {
+        setError(error.response.data.error);
+      } else {
+        setError('Network error. Please try again.');
+      }
     } finally {
       setActivatingDevbench(null);
     }
@@ -222,18 +224,20 @@ function Dashboard({ onLogout }) {
         },
       });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        showNotification(`Status check completed for "${devbenchName}": ${data.status}`, 'success');
+      if (response.status === 200) {
+        showNotification(`Status check completed for "${devbenchName}": ${response.data.status}`, 'success');
         // Refresh the list to show updated status
         fetchDevbenches();
       } else {
-        setError(data.error || 'Failed to check devbench status');
+        setError(response.data.error || 'Failed to check devbench status');
       }
     } catch (error) {
       console.error('Error checking status:', error);
-      setError('Network error. Please try again.');
+      if (error.response?.data?.error) {
+        setError(error.response.data.error);
+      } else {
+        setError('Network error. Please try again.');
+      }
     } finally {
       setCheckingStatus(null);
     }
