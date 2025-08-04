@@ -19,8 +19,8 @@ services:
       # Database Configuration - Using in-memory SQLite for testing
       - "DATABASE_URL=sqlite:///:memory:"
       
-      # Admin Configuration
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      # Admin Configuration - Use ASF_TB as default to match .env.flask
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
       
       # Domain Configuration
       - DOMAIN=${DOMAIN:-tbm.asf.nabd-co.com}

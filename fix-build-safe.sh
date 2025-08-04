@@ -297,13 +297,46 @@ build_and_start_containers() {
     while [ $attempt -le $max_attempts ]; do
         if curl -f http://localhost:8082/api/health >/dev/null 2>&1; then
             print_success "Application is ready!"
+            
+            # Debug admin user creation
+            print_status "Checking admin user creation..."
+            docker exec devbench-manager python -c "
+from app import app, db, User
+with app.app_context():
+    admin = User.query.filter_by(username='admin').first()
+    if admin:
+        print('✅ Admin user exists in database')
+        print(f'Admin username: {admin.username}')
+        print(f'Admin is_admin: {admin.is_admin}')
+    else:
+        print('❌ Admin user not found in database')
+    
+    # List all users
+    users = User.query.all()
+    print(f'Total users in database: {len(users)}')
+    for user in users:
+        print(f'User: {user.username}, Admin: {user.is_admin}')
+" 2>/dev/null || true
+            
+            # Test login API directly
+            print_status "Testing login API directly..."
+            docker exec devbench-manager curl -X POST http://localhost:3001/api/login \
+                -H "Content-Type: application/json" \
+                -d '{"username":"admin","password":"admin123"}' \
+                -v 2>/dev/null || true
+            
             break
         fi
         
         if [ $attempt -eq $max_attempts ]; then
             print_error "Application failed to start within expected time"
-            print_status "Checking container logs..."
-            docker logs devbench-manager --tail 50
+            print_status "Final debugging information:"
+            print_status "Container processes:"
+            docker exec devbench-manager ps aux 2>/dev/null || true
+            print_status "Container environment:"
+            docker exec devbench-manager env | grep -E "(DATABASE|FLASK|ADMIN)" 2>/dev/null || true
+            print_status "Full container logs:"
+            docker logs devbench-manager --tail 100
             exit 1
         fi
         

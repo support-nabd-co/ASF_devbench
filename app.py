@@ -509,11 +509,15 @@ def init_db():
         # Create default admin user if it doesn't exist
         admin = User.query.filter_by(username='admin').first()
         if not admin:
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+            print(f"🔧 Creating admin user with password from environment: {admin_password}")
             admin = User(username='admin', is_admin=True)
-            admin.set_password(os.environ.get('ADMIN_PASSWORD', 'admin123'))
+            admin.set_password(admin_password)
             db.session.add(admin)
             db.session.commit()
             print("✅ Created default admin user (username: admin)")
+        else:
+            print("ℹ️ Admin user already exists, skipping creation")
 
 if __name__ == '__main__':
     init_db()
