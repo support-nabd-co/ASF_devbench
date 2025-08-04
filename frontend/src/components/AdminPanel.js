@@ -13,8 +13,8 @@ function AdminPanel({ onLogout }) {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newUser, setNewUser] = useState({
     username: '',
-    email: '',
-    fullName: ''
+    password: '',
+    is_admin: false
   });
 
   // Fetch users on component mount
@@ -25,11 +25,8 @@ function AdminPanel({ onLogout }) {
   // Fetch all users
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem('devbench_admin_token');
       const response = await axios.get('/api/admin/users', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        withCredentials: true  // Include session cookies
       });
       
       setUsers(response.data);
@@ -49,22 +46,25 @@ function AdminPanel({ onLogout }) {
   const handleCreateUser = async (e) => {
     e.preventDefault();
     
-    if (!newUser.username.trim()) {
-      showNotification('Username is required', 'error');
+    if (!newUser.username.trim() || !newUser.password) {
+      showNotification('Username and password are required', 'error');
       return;
     }
 
     try {
-      const token = localStorage.getItem('devbench_admin_token');
-      const response = await axios.post('/api/admin/users', newUser, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+      const response = await axios.post('/api/admin/users', 
+        {
+          username: newUser.username,
+          password: newUser.password,
+          is_admin: newUser.is_admin || false
+        },
+        {
+          withCredentials: true  // Include session cookies
         }
-      });
+      );
 
       setUsers([response.data, ...users]);
-      setNewUser({ username: '', email: '', fullName: '' });
+      setNewUser({ username: '', password: '', is_admin: false });
       setShowCreateForm(false);
       showNotification('User created successfully!', 'success');
     } catch (error) {
@@ -74,26 +74,20 @@ function AdminPanel({ onLogout }) {
     }
   };
 
-  // Toggle user disabled status
-  const toggleUserStatus = async (username, currentDisabled) => {
+  // Toggle user admin status
+  const toggleAdminStatus = async (userId, currentStatus) => {
     try {
-      const token = localStorage.getItem('devbench_admin_token');
-      const response = await axios.put(`/api/admin/users/${username}`, 
-        { disabled: !currentDisabled },
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
+      const response = await axios.put(
+        `/api/admin/users/${userId}`, 
+        { is_admin: !currentStatus },
+        { withCredentials: true }
       );
 
       setUsers(users.map(user => 
-        user.id === username ? response.data : user
+        user.id === userId ? response.data : user
       ));
       
-      const status = !currentDisabled ? 'disabled' : 'enabled';
-      showNotification(`User ${status} successfully!`, 'success');
+      showNotification(`User admin status updated!`, 'success');
     } catch (error) {
       console.error('Error updating user:', error);
       showNotification('Failed to update user status', 'error');
@@ -101,20 +95,17 @@ function AdminPanel({ onLogout }) {
   };
 
   // Delete user
-  const deleteUser = async (username) => {
-    if (!window.confirm(`Are you sure you want to delete user "${username}" and all their devbenches? This action cannot be undone.`)) {
+  const deleteUser = async (userId) => {
+    if (!window.confirm(`Are you sure you want to delete this user? This action cannot be undone.`)) {
       return;
     }
 
     try {
-      const token = localStorage.getItem('devbench_admin_token');
-      await axios.delete(`/api/admin/users/${username}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      await axios.delete(`/api/admin/users/${userId}`, {
+        withCredentials: true
       });
 
-      setUsers(users.filter(user => user.id !== username));
+      setUsers(users.filter(user => user.id !== userId));
       showNotification('User deleted successfully!', 'success');
     } catch (error) {
       console.error('Error deleting user:', error);
@@ -201,29 +192,29 @@ function AdminPanel({ onLogout }) {
                     />
                   </div>
                   <div>
-                    <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 mb-1">
-                      Full Name
+                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                      Password *
                     </label>
                     <input
-                      id="fullName"
-                      type="text"
-                      value={newUser.fullName}
-                      onChange={(e) => setNewUser({...newUser, fullName: e.target.value})}
-                      placeholder="Enter full name"
+                      id="password"
+                      type="password"
+                      value={newUser.password}
+                      onChange={(e) => setNewUser({...newUser, password: e.target.value})}
+                      placeholder="Enter password"
                       className="input-field"
+                      required
                     />
                   </div>
                   <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
-                      Email
+                    <label htmlFor="is_admin" className="block text-sm font-medium text-gray-700 mb-1">
+                      Admin
                     </label>
                     <input
-                      id="email"
-                      type="email"
-                      value={newUser.email}
-                      onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                      placeholder="Enter email"
-                      className="input-field"
+                      id="is_admin"
+                      type="checkbox"
+                      checked={newUser.is_admin}
+                      onChange={(e) => setNewUser({...newUser, is_admin: e.target.checked})}
+                      className="input-checkbox"
                     />
                   </div>
                 </div>
@@ -247,7 +238,7 @@ function AdminPanel({ onLogout }) {
                     User
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    Admin
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Created
@@ -263,21 +254,15 @@ function AdminPanel({ onLogout }) {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">{user.username}</div>
-                        {user.fullName && (
-                          <div className="text-sm text-gray-500">{user.fullName}</div>
-                        )}
-                        {user.email && (
-                          <div className="text-sm text-gray-500">{user.email}</div>
-                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        user.disabled 
-                          ? 'bg-red-100 text-red-800' 
-                          : 'bg-green-100 text-green-800'
+                        user.is_admin 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
                       }`}>
-                        {user.disabled ? 'Disabled' : 'Active'}
+                        {user.is_admin ? 'Yes' : 'No'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -285,12 +270,12 @@ function AdminPanel({ onLogout }) {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                       <button
-                        onClick={() => toggleUserStatus(user.id, user.disabled)}
+                        onClick={() => toggleAdminStatus(user.id, user.is_admin)}
                         className={`${
-                          user.disabled ? 'text-green-600 hover:text-green-900' : 'text-yellow-600 hover:text-yellow-900'
+                          user.is_admin ? 'text-yellow-600 hover:text-yellow-900' : 'text-green-600 hover:text-green-900'
                         }`}
                       >
-                        {user.disabled ? 'Enable' : 'Disable'}
+                        {user.is_admin ? 'Remove Admin' : 'Make Admin'}
                       </button>
                       <button
                         onClick={() => deleteUser(user.id)}
