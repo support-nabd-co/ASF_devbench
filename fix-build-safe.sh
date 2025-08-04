@@ -121,11 +121,16 @@ backup_old_files() {
 setup_flask_environment() {
     print_step 3 "Setting Up Flask Environment"
     
-    # Create data directory for SQLite database
+    # Create data directory for SQLite database with proper permissions
     if [ ! -d "data" ]; then
         mkdir -p data
         print_success "Created data directory for SQLite database"
     fi
+    
+    # Set proper permissions for data directory
+    # This ensures the Docker container can write to it
+    chmod 755 data
+    print_success "Set proper permissions for data directory"
     
     # Copy Flask environment template if .env doesn't exist
     if [ ! -f ".env" ]; then
@@ -257,7 +262,7 @@ build_and_start_containers() {
     
     # Wait for container to be ready
     print_status "Waiting for application to be ready..."
-    local max_attempts=30
+    local max_attempts=60  # Increased timeout for database initialization
     local attempt=1
     
     while [ $attempt -le $max_attempts ]; do
@@ -269,7 +274,7 @@ build_and_start_containers() {
         if [ $attempt -eq $max_attempts ]; then
             print_error "Application failed to start within expected time"
             print_status "Checking container logs..."
-            docker logs devbench-manager --tail 20
+            docker logs devbench-manager --tail 50
             exit 1
         fi
         

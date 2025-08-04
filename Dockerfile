@@ -7,8 +7,9 @@ WORKDIR /app/frontend
 # Copy frontend package files
 COPY frontend/package*.json ./
 
-# Check if package-lock.json exists, if not use npm install
-RUN if [ -f package-lock.json ]; then npm ci --only=production; else npm install --only=production; fi
+# Install frontend dependencies
+# Use npm install instead of npm ci for better compatibility
+RUN npm install --only=production
 
 # Copy frontend source code
 COPY frontend/ ./
@@ -25,11 +26,12 @@ RUN apt-get update && apt-get install -y \
     g++ \
     curl \
     bash \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory and user
+# Create app directory and user with specific UID/GID for volume permissions
 WORKDIR /app
-RUN groupadd -r flask && useradd -r -g flask flask
+RUN groupadd -g 1000 flask && useradd -u 1000 -g 1000 -r flask
 
 # Copy Python requirements and install dependencies
 COPY requirements.txt ./
@@ -46,13 +48,12 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Make provision script executable
 RUN chmod +x provision_vm.sh
 
-# Create directory for SQLite database
-RUN mkdir -p /app/data && chown -R flask:flask /app/data
+# Create directory for SQLite database with proper permissions
+RUN mkdir -p /app/data && \
+    chown -R flask:flask /app && \
+    chmod -R 755 /app/data
 
-# Change ownership to flask user
-RUN chown -R flask:flask /app
-
-# Switch to non-root user
+# Switch to flask user
 USER flask
 
 # Expose port
@@ -67,5 +68,5 @@ ENV FLASK_ENV=production
 ENV DATABASE_URL=sqlite:///data/devbench.db
 ENV PYTHONPATH=/app
 
-# Start the Flask application
+# Start the Flask application with database initialization
 CMD ["python", "app.py"]
