@@ -16,8 +16,8 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-make-it-long-and-random}
       - PORT=3001
       
-      # Database Configuration
-      - DATABASE_URL=sqlite:///data/devbench.db
+      # Database Configuration - Using in-memory SQLite for testing
+      - DATABASE_URL=sqlite:///:memory:
       
       # Admin Configuration
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
@@ -31,8 +31,6 @@ services:
     volumes:
       # Mount environment file if it exists
       - ./.env:/app/.env:ro
-      # Mount data directory for SQLite database persistence with full permissions
-      - ./data:/app/data:Z
       # Mount provision script to make it accessible
       - ./provision_vm.sh:/app/provision_vm.sh:ro
     networks:
