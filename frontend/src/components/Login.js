@@ -39,7 +39,13 @@ const Login = ({ onLogin }) => {
         // Store user info for persistence
         localStorage.setItem('devbench_user', JSON.stringify(data.user));
         onLogin(data.user);
-        navigate('/dashboard');
+        
+        // Navigate based on user role
+        if (data.user.is_admin) {
+          navigate('/admin/panel');
+        } else {
+          navigate('/dashboard');
+        }
       } else {
         setError(data.error || 'Login failed');
       }
