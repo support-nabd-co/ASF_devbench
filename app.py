@@ -7,6 +7,7 @@ Replaces Node.js/Firebase backend with local SQLite database
 import os
 import subprocess
 import threading
+import time
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -21,15 +22,70 @@ app = Flask(__name__, static_folder='frontend/build', static_url_path='')
 
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///devbench.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Database configuration with robust path handling
+database_url = os.environ.get('DATABASE_URL', 'sqlite:///data/devbench.db')
+
+# Ensure data directory exists with proper permissions
+def ensure_data_directory():
+    """Ensure the data directory exists and is writable"""
+    try:
+        if database_url.startswith('sqlite:///'):
+            # Extract the database file path
+            db_path = database_url.replace('sqlite:///', '')
+            db_dir = os.path.dirname(db_path)
+            
+            # Create directory if it doesn't exist
+            if not os.path.exists(db_dir):
+                os.makedirs(db_dir, mode=0o755, exist_ok=True)
+                print(f"✅ Created database directory: {db_dir}")
+            
+            # Ensure directory is writable
+            if not os.access(db_dir, os.W_OK):
+                try:
+                    os.chmod(db_dir, 0o777)  # More permissive for Docker
+                    print(f"✅ Fixed permissions for directory: {db_dir}")
+                except Exception as e:
+                    print(f"⚠️ Could not fix directory permissions: {e}")
+            
+            # Test write access
+            test_file = os.path.join(db_dir, '.write_test')
+            try:
+                with open(test_file, 'w') as f:
+                    f.write('test')
+                os.remove(test_file)
+                print(f"✅ Database directory is writable: {db_dir}")
+                return True
+            except Exception as e:
+                print(f"❌ Database directory is not writable: {e}")
+                return False
+        return True
+    except Exception as e:
+        print(f"❌ Error ensuring data directory: {e}")
+        return False
+
+# Ensure data directory before configuring database
+if not ensure_data_directory():
+    print("❌ Failed to ensure database directory is writable")
+    # Try alternative approach - use /tmp for SQLite in container
+    if os.path.exists('/tmp'):
+        database_url = 'sqlite:////tmp/devbench.db'
+        print(f"⚠️ Falling back to temporary database: {database_url}")
+    else:
+        print("❌ Cannot create database - exiting")
+        sys.exit(1)
+
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url
 
 # Initialize extensions
 db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
-CORS(app, supports_credentials=True)
+
+# Enable CORS for frontend
+CORS(app, supports_credentials=True, origins=['http://localhost:3000', 'http://localhost:8082', 'https://tbm.asf.nabd-co.com'])
 
 # Models
 class User(UserMixin, db.Model):

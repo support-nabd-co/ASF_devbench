@@ -29,9 +29,8 @@ RUN apt-get update && apt-get install -y \
     sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create app directory and user with specific UID/GID for volume permissions
+# Create app directory
 WORKDIR /app
-RUN groupadd -g 1000 flask && useradd -u 1000 -g 1000 -r flask
 
 # Copy Python requirements and install dependencies
 COPY requirements.txt ./
@@ -48,10 +47,8 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Make provision script executable
 RUN chmod +x provision_vm.sh
 
-# Create directory for SQLite database with proper permissions
-RUN mkdir -p /app/data && \
-    chown -R flask:flask /app && \
-    chmod -R 755 /app/data
+# Create directory for SQLite database with full permissions
+RUN mkdir -p /app/data && chmod 777 /app/data
 
 # Expose port
 EXPOSE 3001
@@ -65,16 +62,6 @@ ENV FLASK_ENV=production
 ENV DATABASE_URL=sqlite:///data/devbench.db
 ENV PYTHONPATH=/app
 
-# Create a startup script that ensures proper permissions
-RUN echo '#!/bin/bash\n\
-# Ensure data directory exists and has proper permissions\n\
-mkdir -p /app/data\n\
-chown -R flask:flask /app/data\n\
-chmod -R 755 /app/data\n\
-\n\
-# Switch to flask user and start the application\n\
-exec su flask -c "python /app/app.py"\n\
-' > /app/start.sh && chmod +x /app/start.sh
-
-# Start the Flask application with proper permission handling
-CMD ["/app/start.sh"]
+# Run as root to avoid permission issues
+# The Flask app will handle database initialization
+CMD ["python", "app.py"]
