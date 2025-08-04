@@ -5,7 +5,7 @@ import React, { useState } from 'react';
  * Features client-side validation and loading states
  * Displays feedback without using alert()
  */
-function CreateDevbenchForm({ onCreateDevbench }) {
+function CreateDevbenchForm({ onCreate, onCancel }) {
   const [devbenchName, setDevbenchName] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState('');
@@ -45,7 +45,7 @@ function CreateDevbenchForm({ onCreateDevbench }) {
     setIsCreating(true);
 
     try {
-      await onCreateDevbench(trimmedName);
+      await onCreate(trimmedName);
       
       // Clear form on success
       setDevbenchName('');
@@ -60,11 +60,22 @@ function CreateDevbenchForm({ onCreateDevbench }) {
 
   return (
     <div className="card">
-      <div className="flex items-center mb-4">
-        <svg className="w-6 h-6 text-primary-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-        </svg>
-        <h2 className="text-lg font-semibold text-gray-900">Create New Devbench</h2>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          <svg className="w-6 h-6 text-primary-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+          <h2 className="text-lg font-semibold text-gray-900">Create New Devbench</h2>
+        </div>
+        <button
+          onClick={onCancel}
+          className="text-gray-400 hover:text-gray-500"
+          disabled={isCreating}
+        >
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -115,28 +126,33 @@ function CreateDevbenchForm({ onCreateDevbench }) {
             )}
           </div>
           
-          <button
-            type="submit"
-            disabled={isCreating || !devbenchName.trim()}
-            className={`btn-primary ${(isCreating || !devbenchName.trim()) ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {isCreating ? (
-              <div className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Creating...
-              </div>
-            ) : (
-              <>
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                Create Devbench
-              </>
-            )}
-          </button>
+          <div className="space-x-3">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="btn-secondary"
+              disabled={isCreating}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isCreating || !devbenchName.trim()}
+              className={`btn-primary ${(isCreating || !devbenchName.trim()) ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              {isCreating ? (
+                <div className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Creating...
+                </div>
+              ) : (
+                'Create Devbench'
+              )}
+            </button>
+          </div>
         </div>
       </form>
 
