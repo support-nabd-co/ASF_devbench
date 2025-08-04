@@ -21,8 +21,8 @@ function Dashboard({ onLogout }) {
   useEffect(() => {
     const fetchUserAndDevbenches = async () => {
       try {
-        // Fetch current user
-        const userResponse = await axios.get('/api/me', { withCredentials: true });
+        // Fetch current user using validate-token endpoint
+        const userResponse = await axios.get('/api/validate-token', { withCredentials: true });
         setUser(userResponse.data.user);
         
         // Fetch user's devbenches
