@@ -38,35 +38,36 @@ function Dashboard({ onLogout }) {
     }
   }, [onLogout]);
 
+  // Fetch devbenches function (moved to component level)
+  const fetchDevbenches = async () => {
+    try {
+      const token = localStorage.getItem('devbench_token');
+      const response = await axios.get('/api/devbenches', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      setDevbenches(response.data);
+      setIsLoading(false);
+
+      // Set up Firestore real-time listener if Firebase is configured
+      setupRealtimeListener();
+
+    } catch (error) {
+      console.error('Error fetching devbenches:', error);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        onLogout();
+      } else {
+        setError('Failed to load devbenches. Please refresh the page.');
+        setIsLoading(false);
+      }
+    }
+  };
+
   // Fetch initial devbenches and set up real-time listener
   useEffect(() => {
     if (!user?.username) return;
-
-    const fetchDevbenches = async () => {
-      try {
-        const token = localStorage.getItem('devbench_token');
-        const response = await axios.get('/api/devbenches', {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        setDevbenches(response.data);
-        setIsLoading(false);
-
-        // Set up Firestore real-time listener if Firebase is configured
-        setupRealtimeListener();
-
-      } catch (error) {
-        console.error('Error fetching devbenches:', error);
-        if (error.response?.status === 401 || error.response?.status === 403) {
-          onLogout();
-        } else {
-          setError('Failed to load devbenches. Please refresh the page.');
-          setIsLoading(false);
-        }
-      }
-    };
 
     fetchDevbenches();
   }, [user, onLogout]);
