@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Main Devbench Manager Application
+  # ASF Devbench Manager Application (Flask Version)
   devbench-app:
     build:
       context: .
@@ -11,21 +11,35 @@ services:
     ports:
       - "8082:3001"
     environment:
-      - NODE_ENV=production
+      # Flask Configuration
+      - FLASK_ENV=production
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-make-it-long-and-random}
       - PORT=3001
-      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-in-production}
-      - FIREBASE_CONFIG=${FIREBASE_CONFIG}
-      - APP_ID=${APP_ID:-devbench-app}
-      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-this-password}
+      
+      # Database Configuration
+      - DATABASE_URL=sqlite:///data/devbench.db
+      
+      # Admin Configuration
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      
+      # Domain Configuration
+      - DOMAIN=${DOMAIN:-tbm.asf.nabd-co.com}
+      - SSL_EMAIL=${SSL_EMAIL:-your-email@example.com}
+      
+      # VM Provisioning
+      - PROVISION_SCRIPT_PATH=./provision_vm.sh
     volumes:
       # Mount environment file if it exists
       - ./.env:/app/.env:ro
+      # Mount data directory for SQLite database persistence
+      - ./data:/app/data
+      # Mount provision script to make it accessible
+      - ./provision_vm.sh:/app/provision_vm.sh:ro
     networks:
       - openproject_openproject_network  # Join OpenProject network so Caddy can reach us
       - default  # Keep default network for other services if needed
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

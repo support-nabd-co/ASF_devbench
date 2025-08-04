@@ -1,0 +1,24 @@
+# ASF Devbench Manager - Flask Backend Dependencies
+# Core Flask and web framework
+Flask==2.3.3
+Flask-SQLAlchemy==3.0.5
+Flask-Login==0.6.3
+Flask-CORS==4.0.0
+
+# Database and ORM
+SQLAlchemy==2.0.21
+
+# Security and password hashing
+Werkzeug==2.3.7
+
+# Environment and configuration
+python-dotenv==1.0.0
+
+# Optional: PostgreSQL support (uncomment if needed)
+# psycopg2-binary==2.9.7
+
+# Optional: MySQL support (uncomment if needed)
+# PyMySQL==1.1.0
+
+# Development dependencies (optional)
+# Flask-Migrate==4.0.5  # For database migrations

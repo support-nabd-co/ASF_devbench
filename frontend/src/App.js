@@ -8,53 +8,104 @@ import './index.css';
 
 /**
  * Main App component that handles routing and authentication state
- * Uses React Router for client-side routing between Login and Dashboard
+ * Updated to work with Flask session-based authentication
  */
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // Check for existing authentication tokens on app load
+  // Check for existing authentication session on app load
   useEffect(() => {
-    const token = localStorage.getItem('devbench_token');
-    const adminToken = localStorage.getItem('devbench_admin_token');
-    
-    if (token) {
-      // TODO: Optionally validate token with backend
-      setIsAuthenticated(true);
-    }
-    
-    if (adminToken) {
-      // TODO: Optionally validate admin token with backend
-      setIsAdminAuthenticated(true);
-    }
-    
-    setIsLoading(false);
+    const validateSession = async () => {
+      try {
+        // Check if we have user info in localStorage
+        const storedUser = localStorage.getItem('devbench_user');
+        
+        if (storedUser) {
+          // Validate session with backend
+          const response = await fetch('/api/validate-token', {
+            method: 'GET',
+            credentials: 'include', // Include session cookies
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setCurrentUser(data.user);
+            setIsAuthenticated(true);
+            
+            // Check if user is admin
+            if (data.user.is_admin) {
+              setIsAdminAuthenticated(true);
+            }
+          } else {
+            // Session is invalid, clear stored data
+            localStorage.removeItem('devbench_user');
+            setIsAuthenticated(false);
+            setIsAdminAuthenticated(false);
+            setCurrentUser(null);
+          }
+        }
+      } catch (error) {
+        console.error('Session validation failed:', error);
+        // Clear stored data on error
+        localStorage.removeItem('devbench_user');
+        setIsAuthenticated(false);
+        setIsAdminAuthenticated(false);
+        setCurrentUser(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    validateSession();
   }, []);
 
   // Handle successful login
-  const handleLogin = (token) => {
-    localStorage.setItem('devbench_token', token);
+  const handleLogin = (user) => {
+    setCurrentUser(user);
     setIsAuthenticated(true);
+    
+    if (user.is_admin) {
+      setIsAdminAuthenticated(true);
+    }
   };
 
   // Handle user logout
-  const handleLogout = () => {
-    localStorage.removeItem('devbench_token');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/logout', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Clear local state regardless of API call result
+      localStorage.removeItem('devbench_user');
+      setIsAuthenticated(false);
+      setIsAdminAuthenticated(false);
+      setCurrentUser(null);
+    }
   };
 
   // Handle admin login
-  const handleAdminLogin = (token) => {
-    localStorage.setItem('devbench_admin_token', token);
+  const handleAdminLogin = (user) => {
+    setCurrentUser(user);
+    setIsAuthenticated(true);
     setIsAdminAuthenticated(true);
   };
 
   // Handle admin logout
-  const handleAdminLogout = () => {
-    localStorage.removeItem('devbench_admin_token');
-    setIsAdminAuthenticated(false);
+  const handleAdminLogout = async () => {
+    await handleLogout(); // Use the same logout logic
   };
 
   // Show loading spinner while checking authentication
@@ -85,7 +136,7 @@ function App() {
             path="/dashboard" 
             element={
               isAuthenticated ? 
-                <Dashboard onLogout={handleLogout} /> : 
+                <Dashboard onLogout={handleLogout} currentUser={currentUser} /> : 
                 <Navigate to="/" replace />
             } 
           />
@@ -105,7 +156,7 @@ function App() {
             path="/admin/panel" 
             element={
               isAdminAuthenticated ? 
-                <AdminPanel onLogout={handleAdminLogout} /> : 
+                <AdminPanel onLogout={handleAdminLogout} currentUser={currentUser} /> : 
                 <Navigate to="/admin" replace />
             } 
           />

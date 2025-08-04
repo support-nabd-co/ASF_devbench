@@ -32,15 +32,39 @@ try {
   const firebaseConfigStr = process.env.FIREBASE_CONFIG;
   const appId = process.env.APP_ID || 'devbench-app';
   
+  console.log('🔍 Checking Firebase configuration...');
+  console.log(`📝 APP_ID: ${appId}`);
+  console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV}`);
+  
   if (!firebaseConfigStr) {
     throw new Error('FIREBASE_CONFIG environment variable is not set');
   }
   
-  const firebaseConfig = JSON.parse(firebaseConfigStr);
+  console.log('✅ FIREBASE_CONFIG environment variable found');
+  console.log(`📏 Config length: ${firebaseConfigStr.length} characters`);
+  
+  let firebaseConfig;
+  try {
+    firebaseConfig = JSON.parse(firebaseConfigStr);
+    console.log('✅ Firebase config JSON parsed successfully');
+  } catch (parseError) {
+    throw new Error(`Failed to parse FIREBASE_CONFIG JSON: ${parseError.message}`);
+  }
   
   if (!firebaseConfig.project_id) {
     throw new Error('Firebase config is missing project_id');
   }
+  
+  if (!firebaseConfig.private_key) {
+    throw new Error('Firebase config is missing private_key');
+  }
+  
+  if (!firebaseConfig.client_email) {
+    throw new Error('Firebase config is missing client_email');
+  }
+  
+  console.log(`🏷️  Project ID: ${firebaseConfig.project_id}`);
+  console.log(`📧 Client Email: ${firebaseConfig.client_email}`);
   
   admin.initializeApp({
     credential: admin.credential.cert(firebaseConfig),
@@ -51,10 +75,29 @@ try {
   console.log('✅ Firebase Admin SDK initialized successfully');
   console.log(`📊 Using Firestore project: ${firebaseConfig.project_id}`);
   console.log(`🏷️  App ID: ${appId}`);
+  
+  // Test database connection
+  console.log('🔍 Testing Firestore connection...');
+  await db.collection('_health_check').doc('test').set({
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    status: 'connected'
+  });
+  console.log('✅ Firestore connection test successful');
+  
 } catch (error) {
   console.error('❌ Failed to initialize Firebase Admin SDK:', error.message);
   console.log('⚠️  Please check your FIREBASE_CONFIG environment variable');
   console.log('💡 Expected format: JSON string with service account credentials');
+  console.log('🔧 Required fields: type, project_id, private_key_id, private_key, client_email, client_id, auth_uri, token_uri');
+  
+  // Log additional debugging info
+  if (process.env.FIREBASE_CONFIG) {
+    console.log('🔍 FIREBASE_CONFIG exists but has issues');
+    console.log(`📏 Length: ${process.env.FIREBASE_CONFIG.length} characters`);
+    console.log(`🔤 First 100 chars: ${process.env.FIREBASE_CONFIG.substring(0, 100)}...`);
+  } else {
+    console.log('❌ FIREBASE_CONFIG environment variable is completely missing');
+  }
 }
 
 // Middleware
