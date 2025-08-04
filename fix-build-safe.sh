@@ -308,6 +308,27 @@ with app.app_context():
         print('✅ Admin user exists in database')
         print(f'Admin username: {admin.username}')
         print(f'Admin is_admin: {admin.is_admin}')
+        print(f'Admin password hash: {admin.password_hash[:50]}...')
+        
+        # Test password verification
+        import os
+        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+        print(f'Environment ADMIN_PASSWORD: {admin_password}')
+        
+        # Test if password verification works
+        if admin.check_password(admin_password):
+            print('✅ Password verification works with environment password')
+        else:
+            print('❌ Password verification FAILED with environment password')
+            
+        # Test with some common passwords
+        test_passwords = ['ASF_admin', 'admin123', 'ASF_TB']
+        for pwd in test_passwords:
+            if admin.check_password(pwd):
+                print(f'✅ Password verification works with: {pwd}')
+                break
+        else:
+            print('❌ None of the test passwords work')
     else:
         print('❌ Admin user not found in database')
     
@@ -318,11 +339,13 @@ with app.app_context():
         print(f'User: {user.username}, Admin: {user.is_admin}')
 " 2>/dev/null || true
             
-            # Test login API directly
-            print_status "Testing login API directly..."
+            # Test login API directly with the environment password
+            print_status "Testing login API directly with environment password..."
+            ADMIN_PASS=$(docker exec devbench-manager printenv ADMIN_PASSWORD)
+            echo "Using password: $ADMIN_PASS"
             docker exec devbench-manager curl -X POST http://localhost:3001/api/login \
                 -H "Content-Type: application/json" \
-                -d '{"username":"admin","password":"admin123"}' \
+                -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
                 -v 2>/dev/null || true
             
             break

@@ -221,25 +221,40 @@ def login():
     """User login endpoint"""
     try:
         data = request.get_json()
-        username = data.get('username', '').strip()
-        password = data.get('password', '')
+        username = data.get('username')
+        password = data.get('password')
+        
+        print(f"🔐 Login attempt for username: {username}")
         
         if not username or not password:
+            print("❌ Missing username or password")
             return jsonify({'error': 'Username and password are required'}), 400
         
         user = User.query.filter_by(username=username).first()
         
-        if user and user.check_password(password):
-            login_user(user, remember=True)
+        if not user:
+            print(f"❌ User not found: {username}")
+            return jsonify({'error': 'Invalid credentials'}), 401
+        
+        print(f"✅ User found: {username}, is_admin: {user.is_admin}")
+        
+        if user.check_password(password):
+            print(f"✅ Password verification successful for: {username}")
+            login_user(user)
             return jsonify({
                 'message': 'Login successful',
-                'user': user.to_dict()
-            })
+                'user': {
+                    'username': user.username,
+                    'is_admin': user.is_admin
+                }
+            }), 200
         else:
-            return jsonify({'error': 'Invalid username or password'}), 401
+            print(f"❌ Password verification failed for: {username}")
+            return jsonify({'error': 'Invalid credentials'}), 401
             
     except Exception as e:
-        return jsonify({'error': f'Login failed: {str(e)}'}), 500
+        print(f"❌ Login error: {str(e)}")
+        return jsonify({'error': 'Login failed'}), 500
 
 @app.route('/api/logout', methods=['POST'])
 @login_required
