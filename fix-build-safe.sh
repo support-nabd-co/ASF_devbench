@@ -320,8 +320,67 @@ build_and_start_containers() {
     print_step 7 "Building and Starting Docker Containers"
     
     # Load environment variables from .env file if it exists
+    # This function properly handles multi-line and special characters in .env files
+    load_env_file() {
+        local env_file="$1"
+        local tmp_file
+        tmp_file=$(mktemp)
+        
+        # Process the .env file line by line
+        while IFS= read -r line || [ -n "$line" ]; do
+            # Skip comments and empty lines
+            [[ $line =~ ^#.*$ || -z "$line" ]] && continue
+            
+            # Handle multi-line values (lines ending with \, but not \\ which would be an escaped backslash)
+            if [[ $line == *'\\' ]]; then
+                # Remove the trailing backslash and read the next line
+                line="${line%\\}"
+                while IFS= read -r next_line || [ -n "$next_line" ]; do
+                    # Check if this line ends the multi-line value
+                    if [[ $next_line != *'\\' ]]; then
+                        line="$line$next_line"
+                        break
+                    else
+                        # Remove the trailing backslash and continue reading
+                        line="$line${next_line%\\}"
+                    fi
+                done
+            fi
+            
+            # Export the variable
+            echo "$line"
+            
+            # Handle the export safely
+            if [[ $line =~ ^([^=]+)=(.*)$ ]]; then
+                local var_name="${BASH_REMATCH[1]}"
+                local var_value="${BASH_REMATCH[2]}"
+                
+                # Remove any surrounding quotes
+                var_value=${var_value%"}"
+                var_value=${var_value#"{"}
+                var_value=${var_value%"'"}
+                var_value=${var_value#"'"}
+                var_value=${varvalue%'"'}
+                var_value=${varvalue#'"'}
+                
+                # Export the variable
+                export "$var_name"="$var_value"
+            fi
+        done < "$env_file" > "$tmp_file"
+        
+        # Source the processed file to set the variables
+        # shellcheck source=/dev/null
+        source "$tmp_file"
+        rm -f "$tmp_file"
+    }
+    
+    # Load the .env file if it exists
     if [ -f ".env" ]; then
-        export $(grep -v '^#' .env | xargs)
+        print_status "Loading environment variables from .env file..."
+        if ! load_env_file ".env"; then
+            print_error "Failed to load .env file"
+            exit 1
+        fi
     fi
     
     # Ensure database directory exists and has proper permissions
@@ -384,7 +443,16 @@ build_and_start_containers() {
     print_status "Initializing database and creating admin user..."
     
     # Get admin password from environment or use default
-    local admin_password=${ADMIN_PASSWORD:-admin123}
+    # Ensure we're using the correct password from environment or .env file
+    local admin_password="${ADMIN_PASSWORD:-admin123}"
+    
+    # If we're in a container, try to get the password from the environment
+    if [ -z "$admin_password" ] || [ "$admin_password" = "admin123" ]; then
+        local container_pass=$(docker exec devbench-manager printenv ADMIN_PASSWORD 2>/dev/null || echo "")
+        if [ -n "$container_pass" ]; then
+            admin_password="$container_pass"
+        fi
+    fi
     
     # Run database initialization script
     if ! docker exec -e ADMIN_PASSWORD="$admin_password" devbench-manager python -c '
