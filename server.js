@@ -156,6 +156,63 @@ const authenticateAdmin = (req, res, next) => {
 // API Routes
 
 /**
+ * GET /api/devbenches/:id/logs
+ * Get logs for a specific devbench
+ */
+app.get('/api/devbenches/:id/logs', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { username } = req.user;
+
+    if (!db) {
+      return res.status(500).json({ error: 'Database connection not available' });
+    }
+
+    const appId = process.env.APP_ID || 'devbench-app';
+    const devbenchRef = db.collection('artifacts').doc(appId)
+      .collection('users').doc(username)
+      .collection('devbenches').doc(id);
+
+    const doc = await devbenchRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({ error: 'Devbench not found' });
+    }
+
+    const devbenchData = doc.data();
+    
+    // Try to read from log file if available
+    if (devbenchData.logFile) {
+      try {
+        const logFilePath = devbenchData.logFile.replace(/\//g, path.sep); // Convert to OS-specific path
+        if (fs.existsSync(logFilePath)) {
+          const fileContent = fs.readFileSync(logFilePath, 'utf8');
+          return res.json({
+            id,
+            logs: fileContent.split('\n').filter(line => line.trim() !== '')
+          });
+        }
+      } catch (fileError) {
+        console.error('Error reading log file:', fileError);
+        // Continue to return logs from Firestore if file read fails
+      }
+    }
+
+    // Fall back to logs in Firestore
+    res.json({
+      id,
+      logs: devbenchData.logs || []
+    });
+
+  } catch (error) {
+    console.error('Error fetching devbench logs:', error);
+    res.status(500).json({ error: 'Failed to fetch devbench logs' });
+  }
+});
+
+// API Routes
+
+/**
  * GET /api/health
  * Health check endpoint for Docker container monitoring
  */
@@ -344,23 +401,60 @@ app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
  * Execute local provision_vm.sh script to provision VM
  * Updates Firestore document with results
  */
+// Create logs directory if it doesn't exist
+const fs = require('fs');
+const path = require('path');
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
 async function executeLocalScript(devbenchRef, devbenchName, username) {
+  const logMessages = [];
+  const logFile = path.join(logsDir, `${devbenchRef.id}.log`);
+  
+  // Helper function to log messages
+  const log = async (message, isError = false) => {
+    const timestamp = new Date().toISOString();
+    const logEntry = `[${timestamp}] ${message}`;
+    logMessages.push(logEntry);
+    
+    // Write to log file
+    fs.appendFileSync(logFile, logEntry + '\n');
+    
+    // Update logs in Firestore
+    try {
+      await devbenchRef.update({
+        logs: logMessages,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (updateError) {
+      console.error('Failed to update logs in Firestore:', updateError);
+    }
+    
+    if (isError) {
+      console.error(logEntry);
+    } else {
+      console.log(logEntry);
+    }
+  };
+
   try {
-    console.log(`🔄 Starting local script execution for devbench: ${devbenchName}`);
+    await log(`🔄 Starting local script execution for devbench: ${devbenchName}`);
     
     // Create combined devbench name: <username>+<devbench name>
     const combinedDevbenchName = `${username}+${devbenchName}`;
     
     // Execute the provision script with new argument format
     const command = `${PROVISION_SCRIPT_PATH} create ${combinedDevbenchName}`;
-    console.log(`🔄 Executing command: ${command}`);
+    await log(`🔄 Executing command: ${command}`);
     
     const { stdout, stderr } = await execAsync(command);
-    console.log(`✅ Local script execution completed for devbench: ${devbenchName}`);
-    console.log('📄 Command output:', stdout);
+    await log(`✅ Local script execution completed for devbench: ${devbenchName}`);
+    await log(`📄 Command output: ${stdout}`);
     
     if (stderr) {
-      console.warn('⚠️ Script stderr:', stderr);
+      await log(`⚠️ Script stderr: ${stderr}`, true);
     }
 
     // Parse the script output
@@ -371,31 +465,46 @@ async function executeLocalScript(devbenchRef, devbenchName, username) {
     } catch (parseError) {
       // If not JSON, treat as plain text and extract useful information
       const lines = stdout.split('\n').filter(line => line.trim().length > 0);
+      const summary = lines[lines.length - 1] || 'VM provisioned successfully';
+      
+      await log(`ℹ️ ${summary}`);
+      
       details = {
         output: stdout,
-        summary: lines[lines.length - 1] || 'VM provisioned successfully'
+        summary: summary,
+        logs: logMessages
       };
 
       // Try to extract IP address from output
       const ipMatch = stdout.match(/(\d+\.\d+\.\d+\.\d+)/);
       if (ipMatch) {
-        details.ip = ipMatch[1];
-        details.sshCommand = `ssh user@${ipMatch[1]}`;
+        const ip = ipMatch[1];
+        details.ip = ip;
+        details.sshCommand = `ssh user@${ip}`;
+        await log(`🌐 VM IP Address: ${ip}`);
       }
     }
 
     // Update Firestore document with success
-    await devbenchRef.update({
+    const updateData = {
       status: 'Active',
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       details: details,
-      combinedName: combinedDevbenchName
-    });
-
-    console.log(`✅ Updated devbench ${devbenchName} status to Active`);
+      combinedName: combinedDevbenchName,
+      logs: logMessages,
+      logFile: logFile.replace(/\\/g, '/') // Convert Windows paths to forward slashes
+    };
+    
+    await devbenchRef.update(updateData);
+    await log(`✅ Updated devbench ${devbenchName} status to Active`);
 
   } catch (error) {
-    console.error(`❌ Local script execution failed for devbench: ${devbenchName}`, error);
+    const errorMessage = `❌ Local script execution failed for devbench: ${devbenchName}: ${error.message}`;
+    await log(errorMessage, true);
+    
+    if (error.stderr) {
+      await log(`Error details: ${error.stderr}`, true);
+    }
 
     // Update Firestore document with error
     try {
@@ -403,13 +512,18 @@ async function executeLocalScript(devbenchRef, devbenchName, username) {
         status: 'Error',
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         error: error.message,
+        logs: logMessages,
+        logFile: logFile.replace(/\\/g, '/'),
         details: {
           error: error.message,
-          stderr: error.stderr || 'Unknown error occurred'
+          stderr: error.stderr || 'Unknown error occurred',
+          logs: logMessages
         }
       });
     } catch (updateError) {
-      console.error(`❌ Failed to update devbench status to Error:`, updateError);
+      const updateErrorMsg = `❌ Failed to update devbench status to Error: ${updateError.message}`;
+      console.error(updateErrorMsg);
+      fs.appendFileSync(logFile, `\n${new Date().toISOString()} ${updateErrorMsg}\n`);
     }
   }
 }
