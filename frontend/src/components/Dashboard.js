@@ -61,6 +61,8 @@ function Dashboard({ onLogout }) {
   // Handle devbench creation
   const handleCreateDevbench = async (devbenchName) => {
     try {
+      setCreatingDevbench(true);
+      
       const response = await axios.post(
         '/api/devbenches/create',
         { devbenchName: devbenchName },
@@ -69,48 +71,73 @@ function Dashboard({ onLogout }) {
 
       // Initialize logs for this devbench
       const newDevbench = response.data;
+      const initialLog = `[${new Date().toISOString()}] Creation started...`;
+      
       setCreationLogs(prev => ({
         ...prev,
-        [newDevbench.id]: [`[${new Date().toISOString()}] Creation started...`]
+        [newDevbench.id]: [initialLog]
       }));
+      
       setActiveLogs(newDevbench.id);
-
-      // Start polling for logs
+      showNotification('Devbench creation started successfully!', 'success');
+      
+      // Start polling for logs and devbench status
       const logInterval = setInterval(async () => {
         try {
+          // Get updated logs
           const logResponse = await axios.get(`/api/devbenches/${newDevbench.id}/logs`, { 
             withCredentials: true 
           });
           
-          if (logResponse.data && logResponse.data.logs) {
+          // Update logs if available
+          if (logResponse.data && Array.isArray(logResponse.data.logs)) {
             setCreationLogs(prev => ({
               ...prev,
               [newDevbench.id]: logResponse.data.logs
             }));
+            
+            // Close the form once we have the first log update
+            setCreatingDevbench(false);
           }
+          
+          // Get updated devbench status
+          const devbenchResponse = await axios.get(`/api/devbenches/${newDevbench.id}`, {
+            withCredentials: true
+          });
+          
+          // Update devbench in the list
+          if (devbenchResponse.data) {
+            setDevbenches(prev => 
+              prev.map(db => db.id === newDevbench.id ? devbenchResponse.data : db)
+            );
+            
+            // Clear interval if devbench is no longer in 'Creating' status
+            if (devbenchResponse.data.status !== 'Creating') {
+              clearInterval(logInterval);
+            }
+          }
+          
         } catch (error) {
-          console.error('Error fetching logs:', error);
+          console.error('Error polling devbench status:', error);
+          // Don't clear interval on error, keep trying
         }
-      }, 2000); // Poll every 2 seconds
+      }, 3000); // Poll every 3 seconds
 
-      // Clean up interval when component unmounts or devbench is created
-      setTimeout(() => clearInterval(logInterval), 600000); // Stop after 10 minutes
-
-      showNotification('Devbench creation started successfully!', 'success');
-      return response.data;
+      // Clean up interval when component unmounts
+      return () => clearInterval(logInterval);
+      
 
     } catch (error) {
       console.error('Error creating devbench:', error);
+      const errorMessage = error.response?.data?.error || 'Failed to create devbench. Please try again.';
+      showNotification(errorMessage, 'error');
+      setCreatingDevbench(false); // Ensure loading state is reset on error
       
-      let errorMessage = 'Failed to create devbench. Please try again.';
-      if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.response?.status === 401) {
+      // If unauthorized, log the user out
+      if (error.response?.status === 401) {
         onLogout();
-        return;
       }
       
-      showNotification(errorMessage, 'error');
       throw error;
     }
   };

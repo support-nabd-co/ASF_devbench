@@ -180,33 +180,55 @@ app.get('/api/devbenches/:id/logs', authenticateToken, async (req, res) => {
     }
 
     const devbenchData = doc.data();
+    const responseData = { id, logs: [] };
     
     // Try to read from log file if available
     if (devbenchData.logFile) {
       try {
-        const logFilePath = devbenchData.logFile.replace(/\//g, path.sep); // Convert to OS-specific path
+        const logFilePath = devbenchData.logFile.replace(/\//g, path.sep);
         if (fs.existsSync(logFilePath)) {
           const fileContent = fs.readFileSync(logFilePath, 'utf8');
-          return res.json({
-            id,
-            logs: fileContent.split('\n').filter(line => line.trim() !== '')
-          });
+          const logs = fileContent.split('\n').filter(line => line.trim() !== '');
+          responseData.logs = logs;
+          responseData.source = 'file';
         }
       } catch (fileError) {
         console.error('Error reading log file:', fileError);
-        // Continue to return logs from Firestore if file read fails
+        responseData.fileError = 'Failed to read log file';
       }
     }
 
-    // Fall back to logs in Firestore
-    res.json({
-      id,
-      logs: devbenchData.logs || []
-    });
+    // If no logs from file, try to get from Firestore
+    if (responseData.logs.length === 0 && devbenchData.logs) {
+      responseData.logs = Array.isArray(devbenchData.logs) 
+        ? devbenchData.logs 
+        : [String(devbenchData.logs)];
+      responseData.source = 'firestore';
+    }
+
+    // If still no logs, check if the devbench is still creating
+    if (responseData.logs.length === 0 && devbenchData.status === 'Creating') {
+      responseData.message = 'Devbench creation in progress. Please wait...';
+      responseData.status = 'creating';
+    } else if (responseData.logs.length === 0) {
+      responseData.message = 'No logs available for this devbench.';
+      responseData.status = 'no-logs';
+    } else {
+      responseData.status = 'success';
+    }
+
+    // Add some metadata
+    responseData.updatedAt = devbenchData.updatedAt?.toDate() || new Date().toISOString();
+    responseData.devbenchStatus = devbenchData.status || 'unknown';
+
+    res.json(responseData);
 
   } catch (error) {
     console.error('Error fetching devbench logs:', error);
-    res.status(500).json({ error: 'Failed to fetch devbench logs' });
+    res.status(500).json({ 
+      error: 'Failed to fetch devbench logs',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -404,10 +426,39 @@ app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
 // Create logs directory if it doesn't exist
 const fs = require('fs');
 const path = require('path');
-const logsDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
+let logsDir; // Will be set based on availability
+
+// Try to use /root/devbench/logs first
+try {
+  const preferredLogsDir = '/root/devbench/logs';
+  
+  if (!fs.existsSync('/root/devbench')) {
+    fs.mkdirSync('/root/devbench', { recursive: true, mode: 0o755 });
+  }
+  
+  if (!fs.existsSync(preferredLogsDir)) {
+    fs.mkdirSync(preferredLogsDir, { recursive: true, mode: 0o777 });
+    console.log(`✅ Created logs directory at: ${preferredLogsDir}`);
+  } else {
+    console.log(`📁 Using existing logs directory: ${preferredLogsDir}`);
+  }
+  
+  // Ensure the directory is writable
+  fs.accessSync(preferredLogsDir, fs.constants.W_OK);
+  console.log(`🔓 Logs directory is writable`);
+  logsDir = preferredLogsDir;
+} catch (error) {
+  console.error('❌ Failed to initialize preferred logs directory:', error);
+  // Fallback to a local logs directory if we can't use /root/devbench/logs
+  const fallbackLogsDir = path.join(__dirname, 'logs');
+  if (!fs.existsSync(fallbackLogsDir)) {
+    fs.mkdirSync(fallbackLogsDir, { recursive: true });
+  }
+  console.log(`⚠️  Using fallback logs directory: ${fallbackLogsDir}`);
+  logsDir = fallbackLogsDir;
 }
+
+console.log(`📝 Final logs directory: ${logsDir}`);
 
 async function executeLocalScript(devbenchRef, devbenchName, username) {
   const logMessages = [];

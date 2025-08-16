@@ -50,11 +50,21 @@ function CreateDevbenchForm({ onCreate, onCancel }) {
       // Clear form on success
       setDevbenchName('');
       
+      // Don't set isCreating to false here - let the parent component handle it
+      // This ensures the form stays open until we're sure the creation has started
+      return; // Success, exit early
+      
     } catch (error) {
-      // Error is handled by parent component
-      console.error('Form submission error:', error);
+      // Only show error if it's not already handled by the parent
+      if (error.response?.status !== 401) { // Skip if it's an auth error (handled by parent)
+        setError(error.response?.data?.error || 'Failed to create devbench. Please try again.');
+      }
+      throw error; // Re-throw to be handled by parent
     } finally {
-      setIsCreating(false);
+      // Only reset if there was an error (success case is handled by parent)
+      if (devbenchName) {
+        setIsCreating(false);
+      }
     }
   };
 
