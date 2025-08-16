@@ -127,39 +127,46 @@ setup_flask_environment() {
         print_success "Created data directory for SQLite database"
     fi
     
-    # Set proper permissions for data directory
-    # This ensures the Docker container can write to it
-    chmod 755 data
-    
-    # On Windows/WSL, we need to ensure the directory is writable
-    # Create a test file to verify write permissions
-    if touch data/.test_write 2>/dev/null; then
-        rm -f data/.test_write
-        print_success "Data directory has proper write permissions"
-    else
-        print_warning "Data directory may have permission issues, attempting to fix..."
-        # Try to fix permissions on Windows/WSL
-        if command_exists wsl; then
-            # We're likely in WSL, use Linux permissions
-            sudo chown -R $(id -u):$(id -g) data 2>/dev/null || true
-            chmod 777 data  # More permissive for Docker volume
-        else
-            # On native Windows, try to make it writable
-            chmod 777 data
-        fi
-        
-        # Test again
-        if touch data/.test_write 2>/dev/null; then
-            rm -f data/.test_write
-            print_success "Fixed data directory permissions"
-        else
-            print_error "Unable to fix data directory permissions"
-            print_error "Please run: chmod 777 data"
-            exit 1
-        fi
+    # Ensure logs directory exists with proper permissions
+    if [ ! -d "logs" ]; then
+        mkdir -p logs
+        chmod 755 logs
+        print_success "Created logs directory"
     fi
     
-    print_success "Set proper permissions for data directory"
+    # Set proper permissions for data and logs directories
+    # This ensures the Docker container can write to them
+    chmod 755 data logs
+    
+    # On Windows/WSL, we need to ensure the directories are writable
+    # Create test files to verify write permissions
+    for dir in data logs; do
+        if touch "$dir/.test_write" 2>/dev/null; then
+            rm -f "$dir/.test_write"
+            print_success "$dir directory has proper write permissions"
+        else
+            print_warning "$dir directory may have permission issues, attempting to fix..."
+            # Try to fix permissions on Windows/WSL
+            if command_exists wsl; then
+                # We're likely in WSL, use Linux permissions
+                sudo chown -R $(id -u):$(id -g) "$dir" 2>/dev/null || true
+                chmod 777 "$dir"  # More permissive for Docker volume
+            else
+                # On native Windows, try to make it writable
+                chmod 777 "$dir"
+            fi
+            
+            # Test again
+            if touch "$dir/.test_write" 2>/dev/null; then
+                rm -f "$dir/.test_write"
+                print_success "Fixed $dir directory permissions"
+            else
+                print_error "Unable to fix $dir directory permissions"
+                print_error "Please run: chmod 777 $dir"
+                exit 1
+            fi
+        fi
+    done
     
     # Copy Flask environment template if .env doesn't exist
     if [ ! -f ".env" ]; then
@@ -173,14 +180,30 @@ setup_flask_environment() {
 FLASK_ENV=production
 SECRET_KEY=change-this-in-production-$(openssl rand -hex 32 2>/dev/null || echo "fallback-secret-key")
 PORT=3001
-DATABASE_URL=sqlite:///data/devbench.db
+DATABASE_URL=sqlite:////app/data/devbench.db
 ADMIN_PASSWORD=admin123
 DOMAIN=tbm.asf.nabd-co.com
+LOGS_DIR=/app/logs
+# Set to 'disabled' to skip Firestore
+FIREBASE_CREDENTIALS=disabled
 EOF
             print_success "Created basic .env file"
         fi
     else
-        print_warning ".env already exists, skipping template copy"
+        # Update existing .env with required variables if they don't exist
+        if ! grep -q "^LOGS_DIR=" .env 2>/dev/null; then
+            echo "LOGS_DIR=/app/logs" >> .env
+        fi
+        if ! grep -q "^FIREBASE_CREDENTIALS=" .env 2>/dev/null; then
+            echo "FIREBASE_CREDENTIALS=disabled" >> .env
+        fi
+        print_warning ".env already exists, checking for required variables..."
+    fi
+    
+    # Check for default admin password
+    if grep -q "ADMIN_PASSWORD=admin123" .env 2>/dev/null; then
+        print_warning "⚠️  WARNING: Using default admin password!"
+        print_warning "Please change the ADMIN_PASSWORD in your .env file"
     fi
     
     # Make provision script executable
@@ -190,6 +213,29 @@ EOF
     else
         print_warning "provision_vm.sh not found"
     fi
+    
+    # Verify required environment variables
+    local required_vars=("SECRET_KEY" "ADMIN_PASSWORD" "DOMAIN")
+    for var in "${required_vars[@]}"; do
+        if ! grep -q "^$var=" .env 2>/dev/null; then
+            print_warning "Missing required environment variable: $var"
+            if [ "$var" = "SECRET_KEY" ] && ! grep -q "^SECRET_KEY=" .env 2>/dev/null; then
+                # Generate a secure secret key
+                NEW_SECRET=$(openssl rand -hex 32 2>/dev/null || echo "fallback-secret-key-$(date +%s)")
+                echo "SECRET_KEY=$NEW_SECRET" >> .env
+                print_success "Generated new SECRET_KEY"
+            elif [ "$var" = "ADMIN_PASSWORD" ] && ! grep -q "^ADMIN_PASSWORD=" .env 2>/dev/null; then
+                # Generate a random admin password
+                NEW_PASS=$(openssl rand -base64 16 2>/dev/null || echo "admin-$(date +%s)")
+                echo "ADMIN_PASSWORD=$NEW_PASS" >> .env
+                print_success "Generated new ADMIN_PASSWORD: $NEW_PASS"
+                print_warning "⚠️  IMPORTANT: Save this admin password in a secure place!"
+            else
+                print_error "Please set the $var in your .env file"
+                exit 1
+            fi
+        fi
+    done
 }
 
 # Function to clean npm and prepare frontend
@@ -273,11 +319,25 @@ verify_required_files() {
 build_and_start_containers() {
     print_step 7 "Building and Starting Docker Containers"
     
+    # Load environment variables from .env file if it exists
+    if [ -f ".env" ]; then
+        export $(grep -v '^#' .env | xargs)
+    fi
+    
+    # Ensure database directory exists and has proper permissions
+    mkdir -p data
+    chmod 755 data
+    
     print_status "Building Docker images..."
     if command_exists docker-compose; then
-        docker-compose build --no-cache
+        docker-compose build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1
     else
-        docker compose build --no-cache
+        docker compose build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1
+    fi
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to build Docker images"
+        exit 1
     fi
     print_success "Docker images built successfully"
     
@@ -287,129 +347,233 @@ build_and_start_containers() {
     else
         docker compose up -d
     fi
+    
+    if [ $? -ne 0 ]; then
+        print_error "Failed to start containers"
+        docker logs devbench-manager --tail 50 2>/dev/null || true
+        exit 1
+    fi
     print_success "Containers started successfully"
     
     # Wait for container to be ready
-    print_status "Waiting for application to be ready..."
-    local max_attempts=60  # Increased timeout for database initialization
+    print_status "Waiting for application to be ready (max 2 minutes)..."
+    local max_attempts=60
     local attempt=1
+    local container_ready=false
     
     while [ $attempt -le $max_attempts ]; do
         if curl -f http://localhost:8082/api/health >/dev/null 2>&1; then
-            print_success "Application is ready!"
-            
-            # Debug admin user creation
-            print_status "Checking admin user creation..."
-            docker exec devbench-manager python -c "
-from app import app, db, User
-with app.app_context():
-    admin = User.query.filter_by(username='admin').first()
-    if admin:
-        print('✅ Admin user exists in database')
-        print(f'Admin username: {admin.username}')
-        print(f'Admin is_admin: {admin.is_admin}')
-        print(f'Admin password hash: {admin.password_hash[:50]}...')
-        
-        # Test password verification
-        import os
-        admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-        print(f'Environment ADMIN_PASSWORD: {admin_password}')
-        
-        # Test if password verification works
-        if admin.check_password(admin_password):
-            print('✅ Password verification works with environment password')
-        else:
-            print('❌ Password verification FAILED with environment password')
-            
-        # Test with some common passwords
-        test_passwords = ['ASF_admin', 'admin123', 'ASF_TB']
-        for pwd in test_passwords:
-            if admin.check_password(pwd):
-                print(f'✅ Password verification works with: {pwd}')
-                break
-        else:
-            print('❌ None of the test passwords work')
-    else:
-        print('❌ Admin user not found in database')
-    
-    # List all users
-    users = User.query.all()
-    print(f'Total users in database: {len(users)}')
-    for user in users:
-        print(f'User: {user.username}, Admin: {user.is_admin}')
-" 2>/dev/null || true
-            
-            # Test login API directly with the environment password
-            print_status "Testing login API directly with environment password..."
-            ADMIN_PASS=$(docker exec devbench-manager printenv ADMIN_PASSWORD)
-            echo "Using password: $ADMIN_PASS"
-            docker exec devbench-manager curl -X POST http://localhost:3001/api/login \
-                -H "Content-Type: application/json" \
-                -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PASS\"}" \
-                -v 2>/dev/null || true
-            
+            print_success "Application is responding to health checks"
+            container_ready=true
             break
-        fi
-        
-        if [ $attempt -eq $max_attempts ]; then
-            print_error "Application failed to start within expected time"
-            print_status "Final debugging information:"
-            print_status "Container processes:"
-            docker exec devbench-manager ps aux 2>/dev/null || true
-            print_status "Container environment:"
-            docker exec devbench-manager env | grep -E "(DATABASE|FLASK|ADMIN)" 2>/dev/null || true
-            print_status "Full container logs:"
-            docker logs devbench-manager --tail 100
-            exit 1
         fi
         
         echo -n "."
         sleep 2
         ((attempt++))
     done
+    
+    if [ "$container_ready" != true ]; then
+        print_error "Application failed to start within expected time"
+        print_status "Container logs:"
+        docker logs devbench-manager --tail 50 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Initialize database and create admin user
+    print_status "Initializing database and creating admin user..."
+    
+    # Get admin password from environment or use default
+    local admin_password=${ADMIN_PASSWORD:-admin123}
+    
+    # Run database initialization script
+    if ! docker exec -e ADMIN_PASSWORD="$admin_password" devbench-manager python -c '
+import os
+import sys
+from app import create_app, db
+from app.models import User
+
+app = create_app()
+
+with app.app_context():
+    # Create tables if they don'"'"'t exist
+    print("Creating database tables...")
+    db.create_all()
+    
+    # Create admin user if it doesn'"'"'t exist
+    admin = User.query.filter_by(username="admin").first()
+    if not admin:
+        print("Creating admin user...")
+        admin = User(username="admin", is_admin=True)
+        admin.set_password(os.environ["ADMIN_PASSWORD"])
+        db.session.add(admin)
+        db.session.commit()
+        print("✅ Admin user created successfully")
+    else:
+        print("ℹ️  Admin user already exists")
+    
+    # Verify admin user
+    admin = User.query.filter_by(username="admin").first()
+    if admin and admin.check_password(os.environ["ADMIN_PASSWORD"]):
+        print("✅ Admin user verified")
+    else:
+        print("❌ Admin user verification failed")
+        sys.exit(1)
+' 2>&1; then
+        print_error "Failed to initialize database"
+        docker logs devbench-manager --tail 50 2>/dev/null || true
+        exit 1
+    fi
+    
+    # Test login with the admin credentials
+    print_status "Testing login with admin credentials..."
+    if ! docker exec devbench-manager curl -s -f -X POST http://localhost:3001/api/login \
+        -H "Content-Type: application/json" \
+        -d "{\"username\":\"admin\",\"password\":\"$admin_password\"}" \
+        >/dev/null 2>&1; then
+        print_warning "⚠️  Admin login test failed. Please check your credentials."
+    else
+        print_success "✅ Admin login successful"
+    fi
+    
+    # Set up log rotation
+    print_status "Setting up log rotation..."
+    if [ ! -f "/etc/logrotate.d/devbench" ]; then
+        sudo bash -c 'cat > /etc/logrotate.d/devbench << EOL
+$(pwd)/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 root root
+    sharedscripts
+    postrotate
+        docker restart devbench-manager > /dev/null 2>&1 || true
+    endscript
+}
+EOL'
+        if [ $? -eq 0 ]; then
+            print_success "✅ Log rotation configured"
+        else
+            print_warning "⚠️  Failed to set up log rotation (requires sudo)"
+        fi
+    else
+        print_success "✅ Log rotation already configured"
+    fi
+    
+    # Final status check
+    print_status "Performing final health check..."
+    if curl -f http://localhost:8082/api/health >/dev/null 2>&1; then
+        print_success "✅ Application is fully operational"
+    else
+        print_warning "⚠️  Application is running but health check failed"
+    fi
 }
 
 # Function to display final status
 display_final_status() {
-    print_step 8 "Migration Complete!"
+    print_step 8 "Deployment Complete!"
     
-    echo ""
-    echo "🎉 ASF Devbench Manager has been successfully migrated to Flask!"
-    echo ""
-    echo "📊 Migration Summary:"
-    echo "  ✅ Migrated from Node.js/Firebase to Flask/SQLite"
-    echo "  ✅ Updated Docker configuration"
-    echo "  ✅ Built and deployed containers"
-    echo "  ✅ Application is running and healthy"
-    echo ""
-    echo "🌐 Access Information:"
-    echo "  • Local URL: http://localhost:8082"
-    echo "  • Production URL: https://tbm.asf.nabd-co.com (if Caddy is configured)"
-    echo "  • Health Check: http://localhost:8082/api/health"
-    echo ""
-    echo "👤 Default Admin Login:"
-    echo "  • Username: admin"
-    echo "  • Password: admin123 (change this in production!)"
-    echo ""
-    echo "🔧 Management Commands:"
-    echo "  • View logs: docker logs devbench-manager"
-    echo "  • Restart: docker-compose restart"
-    echo "  • Stop: docker-compose down"
-    echo "  • Update: git pull && ./fix-build-safe.sh"
-    echo ""
-    echo "📁 Important Files:"
-    echo "  • Database: ./data/devbench.db"
-    echo "  • Config: ./.env"
-    echo "  • Backups: ./nodejs_backup_*/"
-    echo ""
+    # Get current environment information
+    local env_file=".env"
+    local db_path="$(pwd)/data/devbench.db"
+    local logs_path="$(pwd)/logs"
+    local admin_user="admin"
+    local admin_password=$(grep "^ADMIN_PASSWORD=" "$env_file" 2>/dev/null | cut -d= -f2- || echo "[Not found in .env]")
+    local domain=$(grep "^DOMAIN=" "$env_file" 2>/dev/null | cut -d= -f2- || echo "tbm.asf.nabd-co.com")
     
-    # Show container status
-    print_status "Container Status:"
-    if command_exists docker-compose; then
-        docker-compose ps
-    else
-        docker compose ps
+    # Check if running in production mode
+    local is_production=false
+    if grep -q "^FLASK_ENV=production" "$env_file" 2>/dev/null; then
+        is_production=true
     fi
+    
+    # Get container status
+    local container_status
+    if command_exists docker-compose; then
+        container_status=$(docker-compose ps 2>&1 || echo "Error getting container status")
+    else
+        container_status=$(docker compose ps 2>&1 || echo "Error getting container status")
+    fi
+    
+    # Get database size
+    local db_size="N/A"
+    if [ -f "$db_path" ]; then
+        db_size=$(du -h "$db_path" | cut -f1)
+    fi
+    
+    # Get log files info
+    local log_files=""
+    if [ -d "$logs_path" ]; then
+        log_files=$(find "$logs_path" -type f -name "*.log" -exec ls -lh {} \; 2>/dev/null | awk '{print $5 "\t" $9}' || echo "No log files found")
+    fi
+    
+    # Display deployment summary
+    echo ""
+    echo "┌──────────────────────────────────────────────────────────────┐"
+    echo "│ 🚀 ASF Devbench Manager Deployment Summary                   │"
+    echo "├──────────────────────────────────────────────────────────────┤"
+    echo "│ 🌐 Access Information:                                      │"
+    echo "│   • Local URL:      http://localhost:8082                   │"
+    echo "│   • Production URL: https://$domain                        │"
+    echo "│   • Health Check:   http://localhost:8082/api/health        │"
+    echo "│   • Admin Panel:    http://localhost:8082/admin             │"
+    echo "│                                                              │"
+    echo "│ 🔐 Admin Credentials:                                       │"
+    echo "│   • Username:       $admin_user                            │"
+    if [ "$is_production" = true ] && [ "$admin_password" != "[Not found in .env]" ]; then
+        echo "│   • Password:       [hidden] (check .env file)              │"
+    else
+        echo "│   • Password:       $admin_password" | awk '{printf "%-60s\n", $0}' | sed 's/^│   \• /│   • /'
+    fi
+    echo "│                                                              │"
+    echo "📊 System Information:                                         │"
+    echo "│   • Database:       $db_path ($db_size)                     │"
+    echo "│   • Logs:           $logs_path                             │"
+    echo "│   • Environment:    $( [ "$is_production" = true ] && echo "Production 🔒" || echo "Development 🛠️ " )"
+    echo "└──────────────────────────────────────────────────────────────┘"
+    echo ""
+    
+    # Display container status
+    echo "📦 Container Status:"
+    echo "$container_status" | awk '{print "  " $0}'
+    echo ""
+    
+    # Display log files information
+    if [ -n "$log_files" ]; then
+        echo "📋 Log Files:"
+        echo "$log_files" | while read -r line; do
+            echo "  • $line"
+        done
+        echo ""
+    fi
+    
+    # Display management commands
+    echo "🔧 Management Commands:"
+    echo "  • View logs:        docker logs -f devbench-manager"
+    echo "  • View DB shell:    docker exec -it devbench-manager flask shell"
+    echo "  • Restart:          docker-compose restart"
+    echo "  • Stop:             docker-compose down"
+    echo "  • Update:           git pull && ./fix-build-safe.sh"
+    echo "  • Backup DB:        cp data/devbench.db data/backup_\$(date +%Y%m%d_%H%M%S).db"
+    echo ""
+    
+    # Display important notes for production
+    if [ "$is_production" = true ]; then
+        echo "🔐 Production Security Notes:"
+        echo "  • Change the default admin password immediately"
+        echo "  • Ensure your .env file has proper permissions (chmod 600 .env)"
+        echo "  • Regularly backup your database from ./data/ directory"
+        echo "  • Monitor logs in $logs_path"
+        echo ""
+    fi
+    
+    # Final success message
+    echo "✅ Deployment completed successfully!"
+    echo "   You can now access the application at http://localhost:8082"
+    echo ""
 }
 
 # Function to handle errors

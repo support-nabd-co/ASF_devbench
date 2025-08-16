@@ -16,10 +16,14 @@ services:
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-make-it-long-and-random}
       - PORT=3001
       
-      # Database Configuration - Using in-memory SQLite for testing
-      - "DATABASE_URL=sqlite:///:memory:"
+      # Database Configuration - Using persistent SQLite
+      - "DATABASE_URL=sqlite:////app/data/devbench.db"
+      - "SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db"
       
-      # Admin Configuration - Use ASF_TB as default to match .env.flask
+      # Logs Configuration
+      - "LOGS_DIR=/app/logs"
+      
+      # Admin Configuration
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
       
       # Domain Configuration
@@ -29,6 +33,9 @@ services:
       # VM Provisioning
       - PROVISION_SCRIPT_PATH=./provision_vm.sh
     volumes:
+      # Persistent data and logs
+      - ./data:/app/data
+      - ./logs:/app/logs
       # Mount environment file if it exists
       - ./.env:/app/.env:ro
       # Mount provision script to make it accessible

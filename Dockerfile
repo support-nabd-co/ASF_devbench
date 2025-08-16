@@ -47,8 +47,10 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Make provision script executable
 RUN chmod +x provision_vm.sh
 
-# Create directory for SQLite database with full permissions
-RUN mkdir -p /app/data && chmod 777 /app/data
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/data /app/logs && \
+    chown -R root:root /app/data /app/logs && \
+    chmod -R 755 /app/data /app/logs
 
 # Expose port
 EXPOSE 3001
@@ -59,7 +61,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Set environment variables
 ENV FLASK_ENV=production
-ENV DATABASE_URL=sqlite:///data/devbench.db
+ENV DATABASE_URL=sqlite:////app/data/devbench.db
+ENV SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
+ENV LOGS_DIR=/app/logs
 ENV PYTHONPATH=/app
 
 # Run as root to avoid permission issues
