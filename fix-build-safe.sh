@@ -355,13 +355,13 @@ build_and_start_containers() {
                 local var_name="${BASH_REMATCH[1]}"
                 local var_value="${BASH_REMATCH[2]}"
                 
-                # Remove any surrounding quotes
-                var_value=${var_value%"}"
+                # Remove any surrounding quotes and braces
+                var_value=${var_value%"}"}
                 var_value=${var_value#"{"}
                 var_value=${var_value%"'"}
                 var_value=${var_value#"'"}
-                var_value=${varvalue%'"'}
-                var_value=${varvalue#'"'}
+                var_value=${var_value%'"'}
+                var_value=${var_value#'"'}
                 
                 # Export the variable
                 export "$var_name"="$var_value"
