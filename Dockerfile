@@ -4,12 +4,11 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Copy frontend package files
+# Copy package files first to leverage Docker cache
 COPY frontend/package*.json ./
 
-# Install frontend dependencies
-# Use npm install instead of npm ci for better compatibility
-RUN npm install --only=production
+# Install only production dependencies
+RUN npm ci --only=production
 
 # Copy frontend source code
 COPY frontend/ ./
@@ -20,26 +19,29 @@ RUN npm run build
 # Stage 2: Python Flask backend
 FROM python:3.11-slim AS production
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install only essential system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     gcc \
-    g++ \
+    python3-dev \
+    libffi-dev \
     curl \
-    bash \
     sqlite3 \
     sshpass \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean \
+    && rm -rf /var/cache/apt/*
 
 # Create app directory
 WORKDIR /app
 
 # Copy Python requirements and install dependencies
-COPY requirements.txt ./
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy Flask application files
-COPY app.py ./
-COPY provision_vm.sh ./
+COPY app.py .
+COPY provision_vm.sh .
 COPY .env.flask ./.env
 
 # Copy built frontend from frontend-builder stage
@@ -48,25 +50,16 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Make provision script executable
 RUN chmod +x provision_vm.sh
 
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/data /app/logs && \
-    chown -R root:root /app/data /app/logs && \
-    chmod -R 755 /app/data /app/logs
-
-# Expose port
-EXPOSE 3001
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:3001/api/health || exit 1
+# Create necessary directories
+RUN mkdir -p /app/data /app/logs
 
 # Set environment variables
+ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
-ENV DATABASE_URL=sqlite:////app/data/devbench.db
-ENV SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
-ENV LOGS_DIR=/app/logs
-ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
-# Run as root to avoid permission issues
-# The Flask app will handle database initialization
-CMD ["python", "app.py"]
+# Expose the port the app runs on
+EXPOSE 3001
+
+# Command to run the application
+CMD ["gunicorn", "--bind", "0.0.0.0:3001", "app:app"]
