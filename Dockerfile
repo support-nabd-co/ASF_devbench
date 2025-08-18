@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     bash \
     sqlite3 \
+    sshpass \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
