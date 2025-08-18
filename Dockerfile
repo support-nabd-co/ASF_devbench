@@ -7,7 +7,7 @@ WORKDIR /app/frontend
 # Copy package files first to leverage Docker cache
 COPY frontend/package*.json ./
 
-# Install dependencies
+# Install only production dependencies
 RUN npm install --only=production
 
 # Copy frontend source code
@@ -19,7 +19,12 @@ RUN npm run build
 # Stage 2: Python Flask backend
 FROM python:3.11-slim AS production
 
-# Install only essential system dependencies
+# Set environment variables to prevent Python from generating .pyc files
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# Install minimal system dependencies in a single layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
@@ -30,12 +35,15 @@ RUN apt-get update && \
     sshpass \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean \
-    && rm -rf /var/cache/apt/*
+    && rm -rf /var/cache/apt/archives/* \
+    && rm -rf /usr/share/doc/* \
+    && rm -rf /usr/share/man/* \
+    && rm -rf /tmp/*
 
 # Create app directory
 WORKDIR /app
 
-# Copy Python requirements and install dependencies
+# Copy Python requirements and install only necessary packages
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -56,10 +64,9 @@ RUN mkdir -p /app/data /app/logs
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
-ENV PYTHONUNBUFFERED=1
 
 # Expose the port the app runs on
 EXPOSE 3001
 
 # Command to run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:3001", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:3001", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "app:app"]
