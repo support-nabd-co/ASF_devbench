@@ -4,8 +4,10 @@ ASF Devbench Manager - Flask Backend
 Replaces Node.js/Firebase backend with local SQLite database
 """
 
+import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timedelta
