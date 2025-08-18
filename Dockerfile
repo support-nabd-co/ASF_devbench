@@ -7,8 +7,8 @@ WORKDIR /app/frontend
 # Copy package files first to leverage Docker cache
 COPY frontend/package*.json ./
 
-# Install c
-RUN npm nnstallstall --only=production
+# Install dependencies
+RUN npm install --only=production
 
 # Copy frontend source code
 COPY frontend/ ./
