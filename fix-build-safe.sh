@@ -458,31 +458,17 @@ build_and_start_containers() {
     if ! docker exec -e ADMIN_PASSWORD="$admin_password" devbench-manager python -c '
 import os
 import sys
-from app import create_app, db
-from app.models import User
+from app import app, db, User, init_db
 
-app = create_app()
+# Initialize the database
+print("🔄 Initializing database...")
+init_db()
+print("✅ Database initialized")
 
+# Verify admin user
 with app.app_context():
-    # Create tables if they don'"'"'t exist
-    print("Creating database tables...")
-    db.create_all()
-    
-    # Create admin user if it doesn'"'"'t exist
     admin = User.query.filter_by(username="admin").first()
-    if not admin:
-        print("Creating admin user...")
-        admin = User(username="admin", is_admin=True)
-        admin.set_password(os.environ["ADMIN_PASSWORD"])
-        db.session.add(admin)
-        db.session.commit()
-        print("✅ Admin user created successfully")
-    else:
-        print("ℹ️  Admin user already exists")
-    
-    # Verify admin user
-    admin = User.query.filter_by(username="admin").first()
-    if admin and admin.check_password(os.environ["ADMIN_PASSWORD"]):
+    if admin and admin.check_password(os.environ.get("ADMIN_PASSWORD", "")):
         print("✅ Admin user verified")
     else:
         print("❌ Admin user verification failed")
