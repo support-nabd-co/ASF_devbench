@@ -296,6 +296,18 @@ def get_devbenches():
     except Exception as e:
         return jsonify({'error': f'Failed to fetch devbenches: {str(e)}'}), 500
 
+@app.route('/api/devbenches/<int:vm_id>', methods=['GET'])
+@login_required
+def get_devbench(vm_id):
+    """Get a specific VM by ID"""
+    try:
+        vm = VM.query.filter_by(id=vm_id, user_id=current_user.id).first()
+        if not vm:
+            return jsonify({'error': 'Devbench not found or access denied'}), 404
+        return jsonify(vm.to_dict())
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch devbench: {str(e)}'}), 500
+
 @app.route('/api/devbenches/create', methods=['POST'])
 @login_required
 def create_devbench():
