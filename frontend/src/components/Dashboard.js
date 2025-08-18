@@ -151,15 +151,18 @@ function Dashboard({ onLogout }) {
     try {
       const response = await axios.post(
         '/api/devbenches/activate',
-        { devbenchId },
+        { devbenchId },  // Ensure this matches the backend expectation
         { withCredentials: true }
       );
 
-      if (response.status === 200) {
-        showNotification(`Devbench "${devbenchName}" activated successfully!`, 'success');
-        // Refresh the list to show updated status
-        const updatedResponse = await axios.get('/api/devbenches', { withCredentials: true });
-        setDevbenches(updatedResponse.data);
+      if (response.data) {
+        // Update the specific devbench with the returned data
+        setDevbenches(prevDevbenches => 
+          prevDevbenches.map(db => 
+            db.id === devbenchId ? { ...db, ...response.data } : db
+          )
+        );
+        showNotification(`Devbench "${devbenchName}" is being activated...`, 'success');
       }
     } catch (error) {
       console.error('Error activating devbench:', error);
@@ -180,19 +183,23 @@ function Dashboard({ onLogout }) {
   const handleCheckStatus = async (devbenchId) => {
     setCheckingStatus(devbenchId);
     try {
-      const response = await axios.get(`/api/devbenches/${devbenchId}/status`, { withCredentials: true });
+      const response = await axios.get(`/api/devbenches/${devbenchId}`, { 
+        withCredentials: true 
+      });
       
-      // Update the specific devbench status
-      setDevbenches(prevDevbenches => 
-        prevDevbenches.map(db => 
-          db.id === devbenchId ? { ...db, status: response.data.status } : db
-        )
-      );
-      
-      showNotification(`Devbench status: ${response.data.status}`, 'info');
+      if (response.data) {
+        // Update the specific devbench with the returned data
+        setDevbenches(prevDevbenches => 
+          prevDevbenches.map(db => 
+            db.id === devbenchId ? response.data : db
+          )
+        );
+        showNotification(`Devbench status: ${response.data.status}`, 'info');
+      }
     } catch (error) {
       console.error('Error checking status:', error);
-      showNotification('Failed to check devbench status', 'error');
+      const errorMessage = error.response?.data?.error || 'Failed to check devbench status';
+      showNotification(errorMessage, 'error');
     } finally {
       setCheckingStatus(null);
     }

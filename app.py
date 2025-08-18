@@ -349,7 +349,7 @@ def activate_devbench():
     """Activate an existing VM"""
     try:
         data = request.get_json()
-        vm_id = data.get('id')
+        vm_id = data.get('devbenchId')  # Changed from 'id' to 'devbenchId' to match frontend
         
         if not vm_id:
             return jsonify({'error': 'VM ID is required'}), 400
@@ -372,6 +372,29 @@ def activate_devbench():
         db.session.rollback()
         return jsonify({'error': f'Failed to activate devbench: {str(e)}'}), 500
 
+@app.route('/api/devbenches/<int:vm_id>/status', methods=['GET'])
+@login_required
+def get_devbench_status(vm_id):
+    """Get status of a specific devbench"""
+    try:
+        vm = VM.query.get_or_404(vm_id)
+        
+        # Check if the current user owns this VM or is an admin
+        if vm.user_id != current_user.id and not current_user.is_admin:
+            return jsonify({'error': 'Unauthorized'}), 403
+            
+        return jsonify({
+            'id': vm.id,
+            'name': vm.name,
+            'status': vm.status,
+            'details': vm.details,
+            'created_at': vm.created_at.isoformat(),
+            'updated_at': vm.updated_at.isoformat()
+        })
+        
+    except Exception as e:
+        return jsonify({'error': f'Failed to get devbench status: {str(e)}'}), 500
+
 @app.route('/api/devbenches/<int:vm_id>/logs', methods=['GET'])
 @login_required
 def get_devbench_logs(vm_id):
@@ -386,12 +409,15 @@ def get_devbench_logs(vm_id):
         # Return logs as an array of lines
         logs = vm.logs.split('\n') if vm.logs else []
         return jsonify({
+            'id': vm.id,
+            'name': vm.name,
             'logs': logs,
-            'status': vm.status
+            'status': vm.status,
+            'updated_at': vm.updated_at.isoformat()
         })
         
     except Exception as e:
-        print(f"Error fetching logs: {e}")
+        logger.error(f"Error fetching logs: {e}")
         return jsonify({'error': 'Failed to fetch logs'}), 500
 
 # Admin endpoints
