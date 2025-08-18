@@ -453,73 +453,146 @@ def delete_user(user_id):
         return jsonify({'error': f'Failed to delete user: {str(e)}'}), 500
 
 # VM provisioning functions
+def setup_logging():
+    """Set up logging configuration"""
+    log_dir = os.environ.get('LOG_DIR', '/var/log/devbench')
+    os.makedirs(log_dir, exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(os.path.join(log_dir, 'app.log')),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+logger = setup_logging()
+
 def execute_provision_script(vm_id, vm_name, username):
     """Execute VM provision script in background thread"""
-    def run():
-        vm = VM.query.get(vm_id)
-        if not vm:
-            print(f"VM {vm_id} not found")
-            return
-            
-        try:
-            # Initialize logs
-            vm.logs = f"[{datetime.utcnow().isoformat()}] Starting VM creation for {vm_name}"
-            db.session.commit()
-            
-            # Run the provision script
-            script_path = os.environ.get('PROVISION_SCRIPT_PATH', './provision_vm.sh')
-            process = subprocess.Popen(
-                [script_path, vm_name, username],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            
-            # Stream output to logs
-            for line in process.stdout:
-                vm = VM.query.get(vm_id)  # Refresh VM object
+    def run(app, vm_id, vm_name, username):
+        with app.app_context():
+            vm = None
+            try:
+                logger.info(f"Starting VM provisioning - ID: {vm_id}, Name: {vm_name}, User: {username}")
+                
+                # Get VM object
+                vm = VM.query.get(vm_id)
                 if not vm:
-                    break
+                    logger.error(f"VM {vm_id} not found in database")
+                    return
+                
+                # Initialize logs
+                start_time = datetime.utcnow()
+                init_log = f"[{start_time.isoformat()}] Starting VM creation for {vm_name}"
+                vm.logs = init_log
+                db.session.commit()
+                logger.info(init_log)
+                
+                # Run the provision script
+                script_path = os.environ.get('PROVISION_SCRIPT_PATH', './provision_vm.sh')
+                cmd = [script_path, 'create', vm_name, username]
+                logger.info(f"Executing command: {' '.join(cmd)}")
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+                
+                # Stream output to logs
+                for line in process.stdout:
+                    if not line.strip():
+                        continue
+                        
+                    with app.app_context():
+                        try:
+                            vm = VM.query.get(vm_id)
+                            if not vm:
+                                logger.error(f"VM {vm_id} no longer exists during provisioning")
+                                break
+                                
+                            timestamp = datetime.utcnow().isoformat()
+                            log_entry = f"[{timestamp}] {line.strip()}"
+                            logger.debug(f"VM {vm_id} - {log_entry}")
+                            
+                            # Update logs and status
+                            vm.logs = (vm.logs or '') + '\n' + log_entry
+                            
+                            # Update status if we detect it in the output
+                            if 'status:' in line.lower():
+                                status = line.lower().split('status:')[-1].strip()
+                                vm.status = status.capitalize()
+                                logger.info(f"VM {vm_id} status updated to: {vm.status}")
+                            
+                            db.session.commit()
+                            
+                        except Exception as update_error:
+                            logger.error(f"Error updating VM {vm_id} status: {str(update_error)}", exc_info=True)
                     
-                timestamp = datetime.utcnow().isoformat()
-                log_entry = f"[{timestamp}] {line}"
-                vm.logs = (vm.logs or '') + '\n' + log_entry
+                    # Small delay to prevent database lock
+                    time.sleep(0.1)
                 
-                # Update status if we detect it in the output
-                if 'status:' in line.lower():
-                    status = line.lower().split('status:')[-1].strip()
-                    vm.status = status.capitalize()
+                # Wait for process to complete
+                process.wait()
+                end_time = datetime.utcnow()
+                duration = end_time - start_time
                 
-                db.session.commit()
+                # Final status update
+                with app.app_context():
+                    vm = VM.query.get(vm_id)
+                    if vm:
+                        if process.returncode == 0:
+                            vm.status = 'Ready'
+                            completion_msg = f"VM creation completed successfully in {duration.total_seconds():.2f} seconds"
+                            vm.logs = (vm.logs or '') + f"\n[{end_time.isoformat()}] {completion_msg}"
+                            logger.info(f"VM {vm_id} - {completion_msg}")
+                        else:
+                            vm.status = 'Error'
+                            error_msg = f"VM creation failed with code {process.returncode} after {duration.total_seconds():.2f} seconds"
+                            vm.logs = (vm.logs or '') + f"\n[{end_time.isoformat()}] {error_msg}"
+                            logger.error(f"VM {vm_id} - {error_msg}")
+                        db.session.commit()
                 
-                # Small delay to prevent database lock
-                time.sleep(0.1)
+                logger.info(f"Completed VM provisioning for {vm_id} with status: {vm.status if vm else 'Unknown'}")
+                        
+            except Exception as e:
+                error_msg = f"Unexpected error in provisioning thread: {str(e)}"
+                logger.error(error_msg, exc_info=True)
                 
-            process.wait()
-            
-            # Final status update
-            vm = VM.query.get(vm_id)
-            if vm:
-                if process.returncode == 0:
-                    vm.status = 'Ready'
-                    vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] VM creation completed successfully"
-                else:
-                    vm.status = 'Error'
-                    vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] VM creation failed with code {process.returncode}"
-                db.session.commit()
-                
-        except Exception as e:
-            print(f"Error in provision script: {e}")
-            vm = VM.query.get(vm_id)
-            if vm:
-                vm.status = 'Error'
-                vm.logs = (vm.logs or '') + f"\n[{datetime.utcnow().isoformat()}] Error: {str(e)}"
-                db.session.commit()
+                try:
+                    with app.app_context():
+                        if vm:
+                            vm.status = 'Error'
+                            error_log = f"\n[{datetime.utcnow().isoformat()}] {error_msg}"
+                            vm.logs = (vm.logs or '') + error_log
+                            db.session.commit()
+                except Exception as inner_e:
+                    logger.error(f"Failed to update VM status after error: {str(inner_e)}", exc_info=True)
     
-    # Start the background thread
-    thread = threading.Thread(target=run)
-    thread.daemon = True
-    thread.start()
+    # Start the provisioning in a background thread
+    try:
+        from flask import current_app
+        app = current_app._get_current_object()
+        
+        logger.info(f"Starting provisioning thread for VM {vm_id}")
+        thread = threading.Thread(
+            target=run,
+            args=(app, vm_id, vm_name, username),
+            name=f"Provision-{vm_id}"
+        )
+        thread.daemon = True
+        thread.start()
+        logger.info(f"Started provisioning thread for VM {vm_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to start provisioning thread: {str(e)}", exc_info=True)
+        raise
 
 def execute_activation_script(vm_id, vm_name, username):
     """Execute VM activation script in background thread"""
