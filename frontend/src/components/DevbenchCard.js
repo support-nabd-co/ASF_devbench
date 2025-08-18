@@ -1,10 +1,11 @@
 import React from 'react';
+import { CalendarIcon, ClockIcon, TerminalIcon, DesktopComputerIcon, ClipboardCopyIcon } from '@heroicons/react/solid';
 
 /**
  * DevbenchCard component that displays individual devbench information
  * Shows name, status, creation time, and details in a responsive card layout
  */
-function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isCheckingStatus, onViewLogs, formatDate }) {
+function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isCheckingStatus, onViewLogs, formatDate, showNotification }) {
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
       case 'running':
@@ -65,84 +66,128 @@ function DevbenchCard({ devbench, onActivate, onCheckStatus, isActivating, isChe
 
   return (
     <div className="bg-white overflow-hidden shadow rounded-lg">
-      <div className="p-5">
+      <div className="px-4 py-5 sm:p-6">
         <div className="flex items-center justify-between">
           <h3 className="text-lg leading-6 font-medium text-gray-900">
             {devbench.name}
+            {devbench.ip_address && (
+              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                {devbench.ip_address}
+              </span>
+            )}
           </h3>
-          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(devbench.status)}`}>
-            {devbench.status || 'Unknown'}
+          <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(devbench.status)}`}>
+            {devbench.status}
           </span>
         </div>
         
-        <div className="mt-2 text-sm text-gray-500">
-          <p>Created: {formatDate(devbench.created_at)}</p>
-          {devbench.updated_at && devbench.updated_at !== devbench.created_at && (
-            <p>Last updated: {formatDate(devbench.updated_at)}</p>
+        <div className="mt-2 text-sm text-gray-500 space-y-1">
+          <div className="flex items-center">
+            <CalendarIcon className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+            <span>Created: {formatDate(devbench.created_at)}</span>
+          </div>
+          {devbench.updated_at && (
+            <div className="flex items-center">
+              <ClockIcon className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
+              <span>Updated: {formatDate(devbench.updated_at)}</span>
+            </div>
+          )}
+          
+          {/* SSH Connection Info */}
+          {devbench.ssh_info && (
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <div className="flex items-start">
+                <TerminalIcon className="flex-shrink-0 h-4 w-4 text-gray-400 mt-0.5" />
+                <div className="ml-1.5">
+                  <span className="text-xs font-medium text-gray-500">SSH:</span>
+                  <div className="flex items-center mt-0.5">
+                    <code className="text-xs font-mono bg-gray-100 px-2 py-1 rounded">
+                      {devbench.ssh_info}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(devbench.ssh_info);
+                        showNotification('SSH command copied to clipboard!', 'success');
+                      }}
+                      className="ml-2 text-gray-400 hover:text-gray-500"
+                      title="Copy to clipboard"
+                    >
+                      <ClipboardCopyIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* VNC Connection Info */}
+          {devbench.vnc_info && (
+            <div className="mt-1">
+              <div className="flex items-start">
+                <DesktopComputerIcon className="flex-shrink-0 h-4 w-4 text-gray-400 mt-0.5" />
+                <div className="ml-1.5">
+                  <span className="text-xs font-medium text-gray-500">VNC:</span>
+                  <div className="flex items-center mt-0.5">
+                    <code className="text-xs font-mono bg-gray-100 px-2 py-1 rounded">
+                      {devbench.vnc_info}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(devbench.vnc_info);
+                        showNotification('VNC info copied to clipboard!', 'success');
+                      }}
+                      className="ml-2 text-gray-400 hover:text-gray-500"
+                      title="Copy to clipboard"
+                    >
+                      <ClipboardCopyIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-
+        
         {devbench.details && (
-          <div className="mt-2">
-            <p className="text-sm text-gray-600">{devbench.details}</p>
+          <div className="mt-4">
+            <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">
+              {devbench.details}
+            </div>
           </div>
         )}
       </div>
-
-      <div className="bg-gray-50 px-5 py-3 flex justify-between items-center">
+      
+      <div className="bg-gray-50 px-4 py-4 sm:px-6 flex justify-between">
         <div className="flex space-x-2">
+          <button
+            onClick={() => onViewLogs(devbench.id)}
+            className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          >
+            View Logs
+          </button>
+          
+          <button
+            onClick={() => onCheckStatus(devbench.id)}
+            disabled={isCheckingStatus === devbench.id}
+            className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+          >
+            {isCheckingStatus === devbench.id ? 'Checking...' : 'Check Status'}
+          </button>
+        </div>
+        
+        <div>
           <button
             onClick={() => onActivate(devbench.id, devbench.name)}
             disabled={isActivating === devbench.id || devbench.status === 'Running'}
             className={`inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white ${
               devbench.status === 'Running' || isActivating === devbench.id
                 ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-primary-600 hover:bg-primary-700'
-            }`}
+                : 'bg-indigo-600 hover:bg-indigo-700'
+            } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
           >
-            {isActivating === devbench.id ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Activating...
-              </>
-            ) : (
-              'Activate'
-            )}
-          </button>
-
-          <button
-            onClick={() => onCheckStatus(devbench.id)}
-            disabled={isCheckingStatus === devbench.id}
-            className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            {isCheckingStatus === devbench.id ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-3 w-3 text-gray-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Checking...
-              </>
-            ) : (
-              'Check Status'
-            )}
+            {isActivating === devbench.id ? 'Activating...' : 'Activate'}
           </button>
         </div>
-
-        {devbench.has_logs && (
-          <button
-            onClick={() => onViewLogs(devbench.id)}
-            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-primary-700 bg-primary-100 hover:bg-primary-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          >
-            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            View Logs
-          </button>
-        )}
       </div>
     </div>
   );

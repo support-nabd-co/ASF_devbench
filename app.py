@@ -129,6 +129,9 @@ class VM(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     details = db.Column(db.Text)  # JSON string for additional details
     logs = db.Column(db.Text, default='')  # Store logs as plain text
+    ssh_info = db.Column(db.Text)  # SSH connection information
+    vnc_info = db.Column(db.Text)  # VNC connection information
+    ip_address = db.Column(db.String(50))  # IP address of the VM
     
     def to_dict(self):
         """Convert VM to dictionary"""
@@ -141,7 +144,10 @@ class VM(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'details': self.details,
-            'has_logs': bool(self.logs)
+            'has_logs': bool(self.logs),
+            'ssh_info': self.ssh_info,
+            'vnc_info': self.vnc_info,
+            'ip_address': self.ip_address
         }
 
 @login_manager.user_loader
@@ -546,6 +552,11 @@ def execute_provision_script(vm_id, vm_name, username):
                     env=env
                 )
                 
+                # Parse output for connection info
+                ssh_info = None
+                vnc_info = None
+                vm_ip = None
+                
                 # Stream output to logs
                 for line in process.stdout:
                     if not line.strip():
@@ -562,78 +573,81 @@ def execute_provision_script(vm_id, vm_name, username):
                             log_entry = f"[{timestamp}] {line.strip()}"
                             logger.debug(f"VM {vm_id} - {log_entry}")
                             
-                            # Update logs and status
+                            # Update logs
                             vm.logs = (vm.logs or '') + '\n' + log_entry
                             
-                            # Update status if we detect it in the output
-                            if 'status:' in line.lower():
-                                status = line.lower().split('status:')[-1].strip()
-                                vm.status = status.capitalize()
-                                logger.info(f"VM {vm_id} status updated to: {vm.status}")
+                            # Parse connection info
+                            if 'SSH_INFO=' in line:
+                                ssh_info = line.split('SSH_INFO=')[1].strip()
+                                vm.ssh_info = ssh_info
+                            elif 'VNC_INFO=' in line:
+                                vnc_info = line.split('VNC_INFO=')[1].strip()
+                                vm.vnc_info = vnc_info
+                            elif 'VM_IP=' in line:
+                                vm_ip = line.split('VM_IP=')[1].strip()
+                                vm.ip_address = vm_ip
+                            
+                            # Update status based on output
+                            if 'VM_CREATION_COMPLETE' in line:
+                                vm.status = 'Running'
+                                vm.details = 'VM is running and ready for use.'
                             
                             db.session.commit()
                             
-                        except Exception as update_error:
-                            logger.error(f"Error updating VM {vm_id} status: {str(update_error)}", exc_info=True)
-                    
-                    # Small delay to prevent database lock
-                    time.sleep(0.1)
+                        except Exception as e:
+                            logger.error(f"Error updating VM {vm_id}: {e}")
+                            db.session.rollback()
                 
-                # Wait for process to complete
+                # Wait for the process to complete
                 process.wait()
-                end_time = datetime.utcnow()
-                duration = end_time - start_time
                 
                 # Final status update
                 with app.app_context():
-                    vm = VM.query.get(vm_id)
-                    if vm:
-                        if process.returncode == 0:
-                            vm.status = 'Ready'
-                            completion_msg = f"VM creation completed successfully in {duration.total_seconds():.2f} seconds"
-                            vm.logs = (vm.logs or '') + f"\n[{end_time.isoformat()}] {completion_msg}"
-                            logger.info(f"VM {vm_id} - {completion_msg}")
-                        else:
-                            vm.status = 'Error'
-                            error_msg = f"VM creation failed with code {process.returncode} after {duration.total_seconds():.2f} seconds"
-                            vm.logs = (vm.logs or '') + f"\n[{end_time.isoformat()}] {error_msg}"
-                            logger.error(f"VM {vm_id} - {error_msg}")
-                        db.session.commit()
-                
-                logger.info(f"Completed VM provisioning for {vm_id} with status: {vm.status if vm else 'Unknown'}")
-                        
-            except Exception as e:
-                error_msg = f"Unexpected error in provisioning thread: {str(e)}"
-                logger.error(error_msg, exc_info=True)
-                
-                try:
-                    with app.app_context():
+                    try:
+                        vm = VM.query.get(vm_id)
                         if vm:
-                            vm.status = 'Error'
-                            error_log = f"\n[{datetime.utcnow().isoformat()}] {error_msg}"
-                            vm.logs = (vm.logs or '') + error_log
+                            if process.returncode == 0:
+                                vm.status = 'Running'
+                                vm.details = 'VM is running and ready for use.'
+                                if ssh_info:
+                                    vm.ssh_info = ssh_info
+                                if vnc_info:
+                                    vm.vnc_info = vnc_info
+                                if vm_ip:
+                                    vm.ip_address = vm_ip
+                            else:
+                                vm.status = 'Failed'
+                                vm.details = f'VM creation failed with exit code {process.returncode}.'
+                            
+                            vm.updated_at = datetime.utcnow()
                             db.session.commit()
-                except Exception as inner_e:
-                    logger.error(f"Failed to update VM status after error: {str(inner_e)}", exc_info=True)
+                            logger.info(f"VM {vm_id} provisioning completed with status: {vm.status}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error in final VM update for {vm_id}: {e}")
+                        db.session.rollback()
+            
+            except Exception as e:
+                logger.error(f"Error in provisioning thread for VM {vm_id}: {e}")
+                try:
+                    if vm:
+                        vm.status = 'Failed'
+                        vm.details = f'Error during provisioning: {str(e)}'
+                        vm.updated_at = datetime.utcnow()
+                        db.session.commit()
+                except:
+                    pass
     
     # Start the provisioning in a background thread
-    try:
-        from flask import current_app
-        app = current_app._get_current_object()
-        
-        logger.info(f"Starting provisioning thread for VM {vm_id}")
-        thread = threading.Thread(
-            target=run,
-            args=(app, vm_id, vm_name, username),
-            name=f"Provision-{vm_id}"
-        )
-        thread.daemon = True
-        thread.start()
-        logger.info(f"Started provisioning thread for VM {vm_id}")
-        
-    except Exception as e:
-        logger.error(f"Failed to start provisioning thread: {str(e)}", exc_info=True)
-        raise
+    thread = threading.Thread(
+        target=run,
+        args=(current_app._get_current_object(), vm_id, vm_name, username)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    # Return immediately, the thread will handle the rest
+    return thread
 
 def execute_activation_script(vm_id, vm_name, username):
     """Execute VM activation script in background thread"""

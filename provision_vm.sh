@@ -83,49 +83,72 @@ cleanup() {
 trap cleanup EXIT
 
 # Build the full SSH command
-SSH_CMD="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10"
+SSH_CMD="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=60 -o ServerAliveCountMax=30"
 FULL_CMD="$REMOTE_SCRIPT_PATH $COMMAND $VM_NAME"
 
 log "Executing remote command: $FULL_CMD"
 
 # Execute the remote command with sshpass and capture output
 {
-    # Use a timeout to prevent hanging
-    if ! timeout 300 sshpass -p "$SSH_PASS" $SSH_CMD "$SSH_USER@$SSH_HOST" "$FULL_CMD" 2>&1; then
+    # Increase timeout to 1800 seconds (30 minutes) and ensure we capture all output
+    if ! output=$(timeout 1800 sshpass -p "$SSH_PASS" $SSH_CMD "$SSH_USER@$SSH_HOST" "$FULL_CMD" 2>&1); then
         EXIT_CODE=$?
+        # Capture any partial output even if command failed
+        echo "$output"
         if [ $EXIT_CODE -eq 124 ]; then
-            log "ERROR: Command timed out after 5 minutes"
+            log "ERROR: Command timed out after 30 minutes"
+            exit 124
         else
             log "ERROR: Command failed with exit code $EXIT_CODE"
+            exit $EXIT_CODE
         fi
-        exit $EXIT_CODE
+    else
+        # Command succeeded, output the result
+        echo "$output"
     fi
 } | tee "$TEMP_OUTPUT"
 
-# Capture the exit status of the pipeline
-PIPESTATUS=(${PIPESTATUS[@]})
-SSHPASS_STATUS=${PIPESTATUS[0]}
-TEE_STATUS=${PIPESTATUS[1]}
+# Process the output to extract connection information
+SSH_INFO=""
+VNC_INFO=""
+VM_IP=""
 
-# Log the full output
-log "Remote command output (exit code: $SSHPASS_STATUS):"
-cat "$TEMP_OUTPUT" | while IFS= read -r line; do
-    log "   $line"
-done
+# Read the output line by line to parse connection info
+while IFS= read -r line; do
+    # Extract SSH connection info
+    if [[ $line == *"SSH:"* ]]; then
+        SSH_INFO=$(echo "$line" | sed 's/^[[:space:]]*SSH:[[:space:]]*//')
+    # Extract VNC connection info
+    elif [[ $line == *"VNC:"* ]]; then
+        VNC_INFO=$(echo "$line" | sed 's/^[[:space:]]*VNC:[[:space:]]*//')
+    # Extract VM IP address
+    elif [[ $line == *"VM IP:"* && ! $line == *"not yet assigned"* ]]; then
+        VM_IP=$(echo "$line" | grep -oE 'VM IP: [0-9.]+' | cut -d' ' -f3)
+    fi
+    
+    # Log each line to the log file
+    log "$line"
+done < "$TEMP_OUTPUT"
+
+# Output the connection information in a structured format
+echo "VM_CREATION_COMPLETE"
+if [ -n "$VM_IP" ]; then
+    echo "VM_IP=$VM_IP"
+fi
+if [ -n "$SSH_INFO" ]; then
+    echo "SSH_INFO=$SSH_INFO"
+fi
+if [ -n "$VNC_INFO" ]; then
+    echo "VNC_INFO=$VNC_INFO"
+fi
 
 # Check if the command was successful
-if [ $SSHPASS_STATUS -eq 0 ]; then
+if [ ${PIPESTATUS[0]} -eq 0 ]; then
     log "Remote command executed successfully"
     exit 0
 else
-    error_msg="Remote command failed with status $SSHPASS_STATUS"
-    if [ $SSHPASS_STATUS -eq 5 ]; then
-        error_msg="SSH authentication failed. Check credentials."
-    elif [ $SSHPASS_STATUS -eq 255 ]; then
-        error_msg="SSH connection failed. Check network and host availability."
-    fi
-    log "ERROR: $error_msg"
-    exit $SSHPESTATUS
+    log "Remote command failed"
+    exit 1
 fi
 
 log "Provisioning script completed successfully"
