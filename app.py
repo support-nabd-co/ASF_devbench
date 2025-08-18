@@ -493,10 +493,22 @@ def execute_provision_script(vm_id, vm_name, username):
                 db.session.commit()
                 logger.info(init_log)
                 
-                # Run the provision script
+                # Sanitize inputs (replace spaces with underscores and remove special chars)
+                safe_username = ''.join(c if c.isalnum() or c == '_' else '_' for c in username.lower())
+                safe_vm_name = ''.join(c if c.isalnum() or c in ('_', '-') else '_' for c in vm_name.lower())
+                
+                # Combine username and vm_name with underscore
+                combined_name = f"{safe_username}_{safe_vm_name}"
+                
+                # Run the provision script with correct format
                 script_path = os.environ.get('PROVISION_SCRIPT_PATH', './provision_vm.sh')
-                cmd = [script_path, 'create', vm_name, username]
+                cmd = [script_path, 'create', combined_name]
                 logger.info(f"Executing command: {' '.join(cmd)}")
+                
+                # Ensure PATH includes /usr/bin for sshpass
+                env = os.environ.copy()
+                if '/usr/bin' not in env.get('PATH', ''):
+                    env['PATH'] = f"/usr/bin:{env.get('PATH', '')}"
                 
                 process = subprocess.Popen(
                     cmd,
@@ -504,7 +516,8 @@ def execute_provision_script(vm_id, vm_name, username):
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
-                    universal_newlines=True
+                    universal_newlines=True,
+                    env=env
                 )
                 
                 # Stream output to logs
