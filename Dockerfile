@@ -1,4 +1,5 @@
 # Multi-stage Dockerfile for ASF Devbench Manager (Flask Version)
+
 # Stage 1: Build React frontend
 FROM node:18-alpine AS frontend-builder
 
@@ -24,7 +25,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# Install minimal system dependencies in a single layer
+# Install system dependencies in a single layer
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     gcc \
@@ -40,14 +41,14 @@ RUN apt-get update && \
     && rm -rf /usr/share/man/* \
     && rm -rf /tmp/*
 
-# Create app directory
+# Create and set working directory
 WORKDIR /app
 
-# Copy Python requirements and install only necessary packages
+# Copy requirements and install Python packages
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
-# Copy Flask application files
+# Copy application files
 COPY app.py .
 COPY provision_vm.sh .
 COPY .env.flask ./.env
