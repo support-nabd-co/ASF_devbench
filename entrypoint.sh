@@ -31,6 +31,9 @@ ensure_data_directory() {
 init_database() {
     log "Initializing database..."
     
+    # Enable SQLAlchemy debug logging
+    export SQLALCHEMY_ECHO=1
+    
     # Ensure migrations directory exists
     mkdir -p /app/migrations
     chown -R 1000:1000 /app/migrations
@@ -41,18 +44,21 @@ init_database() {
         log "Database does not exist, initializing..."
         
         # Initialize migrations
+        log "Running: flask db init"
         if ! flask db init; then
             log "❌ Failed to initialize migrations"
             return 1
         fi
         
         # Create initial migration
+        log "Running: flask db migrate -m 'Initial migration'"
         if ! flask db migrate -m "Initial migration"; then
             log "❌ Failed to create initial migration"
             return 1
         fi
         
         # Apply migrations
+        log "Running: flask db upgrade"
         if ! flask db upgrade; then
             log "❌ Failed to apply migrations"
             return 1
@@ -62,11 +68,14 @@ init_database() {
         log "Creating admin user..."
         python3 -c "
 import os
+import sys
 from app import app, db, User
 
 with app.app_context():
     try:
+        print('Checking if admin user exists...')
         if not User.query.filter_by(username='admin').first():
+            print('Creating admin user...')
             admin = User(username='admin', is_admin=True)
             admin.set_password(os.environ.get('ADMIN_PASSWORD', 'admin123'))
             db.session.add(admin)
@@ -76,10 +85,13 @@ with app.app_context():
             print('ℹ️  Admin user already exists')
     except Exception as e:
         print(f'❌ Error creating admin user: {str(e)}')
-        raise
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
         "
     else
         log "Database exists, running migrations..."
+        log "Running: flask db upgrade"
         if ! flask db upgrade; then
             log "❌ Failed to run migrations"
             return 1
