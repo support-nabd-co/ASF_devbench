@@ -8,20 +8,22 @@ services:
       dockerfile: Dockerfile
     container_name: devbench-manager
     restart: unless-stopped
+    user: "1000:1000"  # Run as non-root user
     ports:
       - "8082:3001"
     environment:
       # Flask Configuration
       - FLASK_ENV=production
+      - FLASK_APP=app.py
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-make-it-long-and-random}
       - PORT=3001
       
       # Database Configuration - Using persistent SQLite
-      - "DATABASE_URL=sqlite:////app/data/devbench.db"
-      - "SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db"
+      - DATABASE_URL=sqlite:////app/data/devbench.db
+      - SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
       
       # Logs Configuration
-      - "LOGS_DIR=/app/logs"
+      - LOGS_DIR=/app/logs
       
       # Admin Configuration
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
@@ -33,7 +35,7 @@ services:
       # VM Provisioning
       - PROVISION_SCRIPT_PATH=./provision_vm.sh
     volumes:
-      # Persistent data and logs
+      # Persistent data and logs with proper permissions
       - ./data:/app/data
       - ./logs:/app/logs
       # Mount environment file if it exists
@@ -48,12 +50,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["gunicorn", "--bind", "0.0.0.0:3001", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "debug", "app:app"]
 
-# Note: This configuration works with your existing Caddy reverse proxy
-# Update your Caddyfile to point tbm.asf.nabd-co.com to devbench-manager:3001
-
-# Use external network that OpenProject and Caddy are already on
 networks:
   openproject_openproject_network:
     external: true
+  default:
+    driver: bridge
