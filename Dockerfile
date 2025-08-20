@@ -63,15 +63,25 @@ RUN chmod +x provision_vm.sh init-db.sh
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/data /app/logs /app/data/backups && \
-    chown -R 1000:1000 /app/data /app/logs
+    chown -R 1000:1000 /app/data /app/logs && \
+    chmod -R 755 /app/data /app/logs
 
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+# Set proper permissions for app directory
+RUN chown -R 1000:1000 /app && \
+    chmod -R 755 /app
 
 # Expose the port the app runs on
 EXPOSE 3001
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3001/api/health || exit 1
+
 # Command to run the application
-CMD ["/bin/sh", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread app:app"]
+CMD ["/bin/sh", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread --access-logfile - --error-logfile - --log-level debug app:app"]

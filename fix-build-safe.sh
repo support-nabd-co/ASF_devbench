@@ -264,23 +264,27 @@ prepare_frontend() {
     print_success "Frontend preparation completed"
 }
 
-# Function to clean Docker resources
+# Function to clean up old Docker resources
 clean_docker_resources() {
-    print_step 5 "Cleaning Docker Resources"
+    print_step 5 "Cleaning Up Old Docker Resources"
     
-    print_status "Stopping existing devbench containers..."
-    docker-compose down 2>/dev/null || docker compose down 2>/dev/null || true
+    # Remove corrupted nodejs_backup_* files
+    print_status "Cleaning up corrupted backup files..."
+    rm -f nodejs_backup_* 2>/dev/null || true
     
-    print_status "Removing devbench-related containers..."
-    docker rm -f devbench-manager 2>/dev/null || true
+    # Stop and remove any existing containers
+    print_status "Stopping and removing existing containers..."
+    if command_exists docker-compose; then
+        docker-compose down -v --remove-orphans 2>/dev/null || true
+    else
+        docker compose down -v --remove-orphans 2>/dev/null || true
+    fi
     
-    print_status "Removing devbench-related images..."
-    docker images | grep -E "(devbench|asf.*devbench)" | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+    # Clean up unused Docker resources
+    print_status "Cleaning up unused Docker resources..."
+    docker system prune -f 2>/dev/null || true
     
-    print_status "Cleaning build cache..."
-    docker builder prune -f --filter "label=project=devbench" 2>/dev/null || true
-    
-    print_success "Docker cleanup completed"
+    print_success "Docker resources cleaned up"
 }
 
 # Function to verify required files
@@ -663,6 +667,26 @@ handle_error() {
     exit 1
 }
 
+# Function to run database diagnostics
+run_database_diagnostics() {
+    print_step 9 "Running Database Diagnostics"
+    
+    # Make the check-db.sh script executable
+    chmod +x check-db.sh || {
+        print_error "Failed to make check-db.sh executable"
+        return 1
+    }
+    
+    # Run the diagnostic script inside the container
+    if docker cp check-db.sh devbench-manager:/app/check-db.sh && \
+       docker exec -it devbench-manager /bin/sh -c "chmod +x /app/check-db.sh && /app/check-db.sh"; then
+        print_success "Database diagnostics completed successfully"
+    else
+        print_error "Database diagnostics failed"
+        return 1
+    fi
+}
+
 # Set error trap
 trap 'handle_error $LINENO' ERR
 
@@ -687,6 +711,7 @@ main() {
     clean_docker_resources
     verify_required_files
     build_and_start_containers
+    run_database_diagnostics
     display_final_status
     
     print_success "Flask migration and Docker deployment completed successfully!"
