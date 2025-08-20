@@ -238,33 +238,7 @@ EOF
     done
 }
 
-# Function to clean npm and prepare frontend
-prepare_frontend() {
-    print_step 4 "Preparing Frontend for Docker Build"
-    
-    # Clean problematic lock files that can cause Docker build issues
-    print_status "Cleaning npm lock files..."
-    rm -f package-lock.json
-    rm -f frontend/package-lock.json
-    rm -f yarn.lock
-    rm -f frontend/yarn.lock
-    print_success "Lock files removed"
-    
-    # Verify frontend directory and package.json exist
-    if [ ! -d "frontend" ]; then
-        print_error "Frontend directory not found"
-        exit 1
-    fi
-    
-    if [ ! -f "frontend/package.json" ]; then
-        print_error "frontend/package.json not found"
-        exit 1
-    fi
-    
-    print_success "Frontend preparation completed"
-}
-
-# Function to clean up old Docker resources
+# Function to clean Docker resources
 clean_docker_resources() {
     print_step 5 "Cleaning Up Old Docker Resources"
     
@@ -272,19 +246,31 @@ clean_docker_resources() {
     print_status "Cleaning up corrupted backup files..."
     rm -f nodejs_backup_* 2>/dev/null || true
     
-    # Stop and remove any existing containers
-    print_status "Stopping and removing existing containers..."
-    if command_exists docker-compose; then
-        docker-compose down -v --remove-orphans 2>/dev/null || true
-    else
-        docker compose down -v --remove-orphans 2>/dev/null || true
+    # Only stop and remove devbench containers
+    print_status "Stopping and removing devbench containers..."
+    
+    # Stop and remove containers defined in docker-compose.yml
+    if [ -f "docker-compose.yml" ]; then
+        docker-compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true
     fi
     
-    # Clean up unused Docker resources
-    print_status "Cleaning up unused Docker resources..."
-    docker system prune -f 2>/dev/null || true
+    # Remove any remaining devbench containers (by name pattern)
+    print_status "Removing any remaining devbench containers..."
+    docker ps -a --filter "name=devbench" --format "{{.ID}}" | xargs -r docker rm -f 2>/dev/null || true
     
-    print_success "Docker resources cleaned up"
+    # Remove devbench images
+    print_status "Removing devbench images..."
+    docker images --filter "reference=*devbench*" --format "{{.ID}}" | xargs -r docker rmi -f 2>/dev/null || true
+    
+    # Clean up volumes (only those with devbench in the name)
+    print_status "Cleaning up devbench volumes..."
+    docker volume ls --filter "name=devbench" -q | xargs -r docker volume rm 2>/dev/null || true
+    
+    # Clean up networks (only those with devbench in the name)
+    print_status "Cleaning up devbench networks..."
+    docker network ls --filter "name=devbench" -q | xargs -r docker network rm 2>/dev/null || true
+    
+    print_success "Devbench Docker resources cleaned up"
 }
 
 # Function to verify required files
