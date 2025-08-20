@@ -238,6 +238,45 @@ EOF
     done
 }
 
+# Function to prepare frontend for Flask integration
+prepare_frontend() {
+    print_step 4 "Preparing Frontend for Flask Integration"
+    
+    # Check if frontend directory exists
+    if [ ! -d "frontend" ]; then
+        print_error "Frontend directory not found"
+        exit 1
+    fi
+    
+    # Navigate to frontend directory
+    cd frontend || {
+        print_error "Failed to enter frontend directory"
+        exit 1
+    }
+    
+    # Install frontend dependencies
+    print_status "Installing frontend dependencies..."
+    if ! npm install; then
+        print_error "Failed to install frontend dependencies"
+        exit 1
+    fi
+    
+    # Build frontend for production
+    print_status "Building frontend for production..."
+    if ! npm run build; then
+        print_error "Failed to build frontend"
+        exit 1
+    fi
+    
+    # Return to project root
+    cd .. || {
+        print_error "Failed to return to project root"
+        exit 1
+    }
+    
+    print_success "Frontend prepared successfully"
+}
+
 # Function to clean Docker resources
 clean_docker_resources() {
     print_step 5 "Cleaning Up Old Docker Resources"
