@@ -40,31 +40,34 @@ RUN apt-get update && \
     && rm -rf /usr/share/man/* \
     && rm -rf /tmp/*
 
-# Create and set working directory
+# Set working directory and copy files
 WORKDIR /app
 
-# Copy requirements and install Python packages
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
 # Copy application files
-COPY app.py .
-COPY provision_vm.sh .
-COPY .env.flask ./.env
+COPY . .
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/migrations /app/data /app/logs /app/data/backups && \
+    chown -R 1000:1000 /app /app/migrations /app/data /app/logs && \
+    chmod -R 755 /app /app/migrations /app/data /app/logs && \
+    chmod +x /app/*.sh
+
+# Initialize migrations directory
+RUN flask db init && \
+    flask db migrate -m "Initial migration" && \
+    chown -R 1000:1000 /app/migrations
 
 # Copy built frontend from frontend-builder stage
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
 # Copy database initialization script
-COPY init-db.sh .
-
-# Make scripts executable
-RUN chmod +x provision_vm.sh init-db.sh
-
-# Create necessary directories with proper permissions
-RUN mkdir -p /app/data /app/logs /app/data/backups && \
-    chown -R 1000:1000 /app/data /app/logs && \
-    chmod -R 755 /app/data /app/logs
+COPY init-database.sh .
 
 # Set environment variables
 ENV FLASK_APP=app.py
@@ -84,4 +87,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3001/api/health || exit 1
 
 # Command to run the application
-CMD ["/bin/sh", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread --access-logfile - --error-logfile - --log-level debug app:app"]
+CMD ["/bin/sh", "-c", "/app/init-database.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread --access-logfile - --error-logfile - --log-level debug app:app"]

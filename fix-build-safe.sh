@@ -273,40 +273,9 @@ clean_docker_resources() {
     print_success "Devbench Docker resources cleaned up"
 }
 
-# Function to prepare frontend for build
-prepare_frontend() {
-    print_step 6 "Preparing Frontend for Build"
-    
-    # Clean problematic lock files that can cause Docker build issues
-    print_status "Cleaning npm lock files..."
-    rm -f package-lock.json 2>/dev/null || true
-    rm -f frontend/package-lock.json 2>/dev/null || true
-    rm -f yarn.lock 2>/dev/null || true
-    rm -f frontend/yarn.lock 2>/dev/null || true
-    
-    # Verify frontend directory and package.json exist
-    if [ ! -d "frontend" ]; then
-        print_error "Frontend directory not found"
-        exit 1
-    fi
-    
-    if [ ! -f "frontend/package.json" ]; then
-        print_error "frontend/package.json not found"
-        exit 1
-    fi
-    
-    # Install frontend dependencies if node_modules doesn't exist
-    if [ ! -d "frontend/node_modules" ]; then
-        print_status "Installing frontend dependencies..."
-        cd frontend && npm install --no-package-lock --no-fund --no-audit && cd ..
-    fi
-    
-    print_success "Frontend preparation completed"
-}
-
 # Function to verify required files
 verify_required_files() {
-    print_step 7 "Verifying Required Files"
+    print_step 6 "Verifying Required Files"
     
     local required_files=("app.py" "requirements.txt" "Dockerfile" "docker-compose.yml")
     local missing_files=()
@@ -341,7 +310,6 @@ build_and_start_containers() {
     print_step 8 "Building and Starting Docker Containers"
     
     # Load environment variables from .env file if it exists
-    # This function properly handles multi-line and special characters in .env files
     load_env_file() {
         local env_file="$1"
         local tmp_file
@@ -408,6 +376,10 @@ build_and_start_containers() {
     mkdir -p data
     chmod 755 data
     
+    # Clean up any existing database locks
+    print_status "Cleaning up any existing database locks..."
+    rm -f data/devbench.db-* 2>/dev/null || true
+    
     print_status "Building Docker images..."
     if command_exists docker-compose; then
         docker-compose build --no-cache --build-arg BUILDKIT_INLINE_CACHE=1
@@ -435,10 +407,39 @@ build_and_start_containers() {
     fi
     print_success "Containers started successfully"
     
+    # Wait for database to be ready
+    print_status "Waiting for database to be ready..."
+    local db_ready=false
+    for i in {1..30}; do
+        if docker exec devbench-manager python -c "import sqlite3; conn = sqlite3.connect('/app/data/devbench.db'); conn.close()" 2>/dev/null; then
+            db_ready=true
+            break
+        fi
+        echo -n "."
+        sleep 2
+    done
+    
+    if [ "$db_ready" != true ]; then
+        print_error "Database did not become ready in time"
+        docker logs devbench-manager --tail 50 2>/dev/null || true
+        exit 1
+    fi
+    echo ""
+    print_success "Database is ready"
+    
     # Initialize database
     initialize_database
     
-    # Wait for container to be ready
+    # Run database migrations
+    print_status "Running database migrations..."
+    if ! docker exec -i devbench-manager flask db upgrade; then
+        print_error "Failed to run database migrations"
+        docker logs devbench-manager --tail 50 2>/dev/null || true
+        exit 1
+    fi
+    print_success "Database migrations completed"
+    
+    # Wait for application to be ready
     print_status "Waiting for application to be ready (max 2 minutes)..."
     local max_attempts=60
     local attempt=1
@@ -463,11 +464,13 @@ build_and_start_containers() {
         exit 1
     fi
     
+    # Run database diagnostics
+    run_database_diagnostics
+    
     # Initialize database and create admin user
     print_status "Initializing database and creating admin user..."
     
     # Get admin password from environment or use default
-    # Ensure we're using the correct password from environment or .env file
     local admin_password="${ADMIN_PASSWORD:-admin123}"
     
     # If we're in a container, try to get the password from the environment
@@ -496,8 +499,7 @@ with app.app_context():
         print("✅ Admin user verified")
     else:
         print("❌ Admin user verification failed")
-        sys.exit(1)
-' 2>&1; then
+        sys.exit(1)' 2>&1; then
         print_error "Failed to initialize database"
         docker logs devbench-manager --tail 50 2>/dev/null || true
         exit 1
@@ -728,7 +730,6 @@ main() {
     clean_docker_resources
     verify_required_files
     build_and_start_containers
-    run_database_diagnostics
     display_final_status
     
     print_success "Flask migration and Docker deployment completed successfully!"
