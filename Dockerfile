@@ -58,10 +58,9 @@ RUN mkdir -p /app/migrations /app/data /app/logs /app/data/backups && \
     chmod -R 755 /app /app/migrations /app/data /app/logs && \
     chmod +x /app/*.sh
 
-# Initialize migrations directory
-RUN flask db init && \
-    flask db migrate -m "Initial migration" && \
-    chown -R 1000:1000 /app/migrations
+# Set entrypoint script
+COPY entrypoint.sh .
+RUN chmod +x /app/entrypoint.sh
 
 # Copy built frontend from frontend-builder stage
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
@@ -69,22 +68,11 @@ COPY --from=frontend-builder /app/frontend/build ./frontend/build
 # Copy database initialization script
 COPY init-database.sh .
 
-# Set environment variables
-ENV FLASK_APP=app.py
-ENV FLASK_ENV=production
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Set proper permissions for app directory
-RUN chown -R 1000:1000 /app && \
-    chmod -R 755 /app
-
 # Expose the port the app runs on
 EXPOSE 3001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3001/api/health || exit 1
+# Set the entrypoint script
+ENTRYPOINT ["/app/entrypoint.sh"]
 
-# Command to run the application
-CMD ["/bin/sh", "-c", "/app/init-database.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread --access-logfile - --error-logfile - --log-level debug app:app"]
+# Default command to run the application
+CMD ["gunicorn", "--bind", "0.0.0.0:3001", "app:app"]
