@@ -56,11 +56,14 @@ COPY .env.flask ./.env
 # Copy built frontend from frontend-builder stage
 COPY --from=frontend-builder /app/frontend/build ./frontend/build
 
-# Make provision script executable
-RUN chmod +x provision_vm.sh
+# Copy database initialization script
+COPY init-db.sh .
+
+# Make scripts executable
+RUN chmod +x provision_vm.sh init-db.sh
 
 # Create necessary directories
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs /app/data/backups
 
 # Set environment variables
 ENV FLASK_APP=app.py
@@ -70,4 +73,4 @@ ENV FLASK_ENV=production
 EXPOSE 3001
 
 # Command to run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:3001", "--workers", "2", "--threads", "2", "--worker-class", "gthread", "app:app"]
+CMD ["/bin/bash", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread app:app"]
