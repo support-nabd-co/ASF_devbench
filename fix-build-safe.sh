@@ -273,9 +273,40 @@ clean_docker_resources() {
     print_success "Devbench Docker resources cleaned up"
 }
 
+# Function to prepare frontend for build
+prepare_frontend() {
+    print_step 6 "Preparing Frontend for Build"
+    
+    # Clean problematic lock files that can cause Docker build issues
+    print_status "Cleaning npm lock files..."
+    rm -f package-lock.json 2>/dev/null || true
+    rm -f frontend/package-lock.json 2>/dev/null || true
+    rm -f yarn.lock 2>/dev/null || true
+    rm -f frontend/yarn.lock 2>/dev/null || true
+    
+    # Verify frontend directory and package.json exist
+    if [ ! -d "frontend" ]; then
+        print_error "Frontend directory not found"
+        exit 1
+    fi
+    
+    if [ ! -f "frontend/package.json" ]; then
+        print_error "frontend/package.json not found"
+        exit 1
+    fi
+    
+    # Install frontend dependencies if node_modules doesn't exist
+    if [ ! -d "frontend/node_modules" ]; then
+        print_status "Installing frontend dependencies..."
+        cd frontend && npm install --no-package-lock --no-fund --no-audit && cd ..
+    fi
+    
+    print_success "Frontend preparation completed"
+}
+
 # Function to verify required files
 verify_required_files() {
-    print_step 6 "Verifying Required Files"
+    print_step 7 "Verifying Required Files"
     
     local required_files=("app.py" "requirements.txt" "Dockerfile" "docker-compose.yml")
     local missing_files=()
@@ -307,7 +338,7 @@ verify_required_files() {
 
 # Function to build and start Docker containers
 build_and_start_containers() {
-    print_step 7 "Building and Starting Docker Containers"
+    print_step 8 "Building and Starting Docker Containers"
     
     # Load environment variables from .env file if it exists
     # This function properly handles multi-line and special characters in .env files
@@ -543,7 +574,7 @@ initialize_database() {
 
 # Function to display final status
 display_final_status() {
-    print_step 8 "Deployment Complete!"
+    print_step 9 "Deployment Complete!"
     
     # Get current environment information
     local env_file=".env"
@@ -655,7 +686,7 @@ handle_error() {
 
 # Function to run database diagnostics
 run_database_diagnostics() {
-    print_step 9 "Running Database Diagnostics"
+    print_step 10 "Running Database Diagnostics"
     
     # Make the check-db.sh script executable
     chmod +x check-db.sh || {
