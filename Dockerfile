@@ -22,7 +22,6 @@ FROM python:3.11-slim AS production
 
 # Set environment variables to prevent Python from generating .pyc files
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # Install system dependencies in a single layer
@@ -62,15 +61,17 @@ COPY init-db.sh .
 # Make scripts executable
 RUN chmod +x provision_vm.sh init-db.sh
 
-# Create necessary directories
-RUN mkdir -p /app/data /app/logs /app/data/backups
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/data /app/logs /app/data/backups && \
+    chown -R 1000:1000 /app/data /app/logs
 
 # Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
 
 # Expose the port the app runs on
 EXPOSE 3001
 
 # Command to run the application
-CMD ["/bin/bash", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread app:app"]
+CMD ["/bin/sh", "-c", "/app/init-db.sh && gunicorn --bind 0.0.0.0:3001 --workers 2 --threads 2 --worker-class gthread app:app"]

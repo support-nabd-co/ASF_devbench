@@ -414,6 +414,9 @@ build_and_start_containers() {
     fi
     print_success "Containers started successfully"
     
+    # Initialize database
+    initialize_database
+    
     # Wait for container to be ready
     print_status "Waiting for application to be ready (max 2 minutes)..."
     local max_attempts=60
@@ -524,6 +527,28 @@ EOL'
     else
         print_warning "⚠️  Application is running but health check failed"
     fi
+}
+
+# Function to initialize database
+initialize_database() {
+    print_status "Initializing database..."
+    local max_retries=10
+    local retry_count=0
+    
+    while [ $retry_count -lt $max_retries ]; do
+        if docker exec -i devbench-manager /bin/sh -c "flask db upgrade" 2>/dev/null; then
+            print_success "Database initialized successfully"
+            return 0
+        fi
+        
+        retry_count=$((retry_count + 1))
+        print_warning "Database initialization attempt $retry_count failed, retrying in 5 seconds..."
+        sleep 5
+    done
+    
+    print_error "Failed to initialize database after $max_retries attempts"
+    docker logs devbench-manager --tail 50 2>/dev/null || true
+    exit 1
 }
 
 # Function to display final status

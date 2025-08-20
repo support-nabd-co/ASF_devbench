@@ -8,6 +8,10 @@ BACKUP_FILE="$BACKUP_DIR/devbench_$TIMESTAMP.db"
 
 # Create backup directory if it doesn't exist
 mkdir -p "$BACKUP_DIR"
+chmod 755 "$BACKUP_DIR"
+
+# Set proper ownership
+chown -R 1000:1000 /app/data /app/logs
 
 # Check if database exists and has tables
 if [ -f "$DB_FILE" ]; then
@@ -16,6 +20,7 @@ if [ -f "$DB_FILE" ]; then
     if sqlite3 "$DB_FILE" "SELECT name FROM sqlite_master WHERE type='table' LIMIT 1;" | grep -q .; then
         echo "Backing up existing database to $BACKUP_FILE"
         cp "$DB_FILE" "$BACKUP_FILE"
+        chmod 644 "$BACKUP_FILE"
         echo "Backup created successfully at $BACKUP_FILE"
     else
         echo "Database file exists but is empty, initializing new database..."
