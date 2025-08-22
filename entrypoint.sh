@@ -6,67 +6,77 @@ set -x
 
 # Log function
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+    echo \"[$(date '+%Y-%m-%d %H:%M:%S')] $1\"
 }
 
 # Ensure data directory exists with proper permissions
 ensure_data_directory() {
-    log "Ensuring data directory exists..."
-    if [ "$DATABASE_URL" = "sqlite:///data/devbench.db" ] || [ -z "$DATABASE_URL" ]; then
-        mkdir -p /app/data
-        chown -R 1000:1000 /app/data
-        chmod -R 755 /app/data
-        
-        # Test write access
-        if touch /app/data/.write_test && rm -f /app/data/.write_test; then
-            log "✅ Data directory is writable"
-        else
-            log "❌ Data directory is not writable"
-            return 1
-        fi
+    log \"Ensuring data directory exists...\"
+    mkdir -p /app/data
+    chown -R 1000:1000 /app/data
+    chmod -R 755 /app/data
+    
+    # Test write access
+    if touch /app/data/.write_test && rm -f /app/data/.write_test; then
+        log \"✅ Data directory is writable\"
+        return 0
+    else
+        log \"❌ Data directory is not writable\"
+        return 1
     fi
 }
 
 # Initialize database and run migrations
 init_database() {
-    log "Initializing database..."
+    local max_attempts=10
+    local attempt=0
+    local wait_seconds=5
     
-    # Enable SQLAlchemy debug logging
-    export SQLALCHEMY_ECHO=1
-    
-    # Ensure migrations directory exists
-    mkdir -p /app/migrations
-    chown -R 1000:1000 /app/migrations
-    chmod -R 755 /app/migrations
-    
-    # Check if database exists
-    if [ ! -f "/app/data/devbench.db" ]; then
-        log "Database does not exist, initializing..."
+    while [ $attempt -lt $max_attempts ]; do
+        attempt=$((attempt + 1))
+        log \"Database initialization attempt $attempt of $max_attempts...\"
         
-        # Initialize migrations
-        log "Running: flask db init"
-        if ! flask db init; then
-            log "❌ Failed to initialize migrations"
-            return 1
+        # Enable SQLAlchemy debug logging
+        export SQLALCHEMY_ECHO=1
+        
+        # Ensure migrations directory exists
+        mkdir -p /app/migrations
+        chown -R 1000:1000 /app/migrations
+        chmod -R 755 /app/migrations
+        
+        # Check if migrations need to be initialized
+        if [ ! -f \"/app/migrations/alembic.ini\" ]; then
+            log \"Initializing database migrations...\"
+            if ! flask db init; then
+                log \"❌ Failed to initialize migrations\"
+                sleep $wait_seconds
+                continue
+            fi
         fi
         
-        # Create initial migration
-        log "Running: flask db migrate -m 'Initial migration'"
-        if ! flask db migrate -m "Initial migration"; then
-            log "❌ Failed to create initial migration"
-            return 1
+        # Create and apply migrations
+        log \"Creating and applying migrations...\"
+        if ! flask db migrate -m \"Initial migration\"; then
+            log \"⚠️ Failed to create migration (this might be normal if no changes detected)\"
         fi
         
-        # Apply migrations
-        log "Running: flask db upgrade"
-        if ! flask db upgrade; then
-            log "❌ Failed to apply migrations"
-            return 1
+        if flask db upgrade; then
+            log \"✅ Database initialized successfully\"
+            return 0
+        else
+            log \"❌ Failed to apply migrations (attempt $attempt/$max_attempts)\"
+            sleep $wait_seconds
         fi
-        
-        # Create admin user
-        log "Creating admin user..."
-        python3 -c "
+    done
+    
+    log \"❌ Failed to initialize database after $max_attempts attempts\"
+    return 1
+}
+
+# Create admin user if it doesn't exist
+create_admin_user() {
+    log \"Ensuring admin user exists...\"
+    python3 -c \"
 import os
 import sys
 from app import app, db, User
@@ -74,10 +84,12 @@ from app import app, db, User
 with app.app_context():
     try:
         print('Checking if admin user exists...')
-        if not User.query.filter_by(username='admin').first():
+        admin = User.query.filter_by(username='admin').first()
+        if not admin:
             print('Creating admin user...')
             admin = User(username='admin', is_admin=True)
-            admin.set_password(os.environ.get('ADMIN_PASSWORD', 'admin123'))
+            admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
+            admin.set_password(admin_password)
             db.session.add(admin)
             db.session.commit()
             print('✅ Admin user created')
@@ -88,62 +100,33 @@ with app.app_context():
         import traceback
         traceback.print_exc()
         sys.exit(1)
-        "
-    else
-        log "Database exists, running migrations..."
-        log "Running: flask db upgrade"
-        if ! flask db upgrade; then
-            log "❌ Failed to run migrations"
-            return 1
-        fi
-    fi
-    
-    # Ensure proper permissions
-    chown -R 1000:1000 /app/data /app/migrations
-    return 0
+    \"
 }
 
 # Main execution
 main() {
-    log "Starting ASF Devbench Manager..."
+    log \"Starting ASF Devbench Manager...\"
     
-    # Change to app directory
-    cd /app
-    
-    # Set environment variables
-    export FLASK_APP=app.py
-    export FLASK_ENV=production
-    
-    # Ensure data directory is ready
+    # Ensure data directory exists and is writable
     if ! ensure_data_directory; then
-        log "❌ Failed to ensure data directory"
+        log \"❌ Could not ensure data directory exists and is writable\"
         exit 1
     fi
     
-    # Initialize and migrate database
-    local max_attempts=10
-    local attempt=1
+    # Initialize database
+    if ! init_database; then
+        log \"❌ Database initialization failed\"
+        exit 1
+    fi
     
-    while [ $attempt -le $max_attempts ]; do
-        log "Database initialization attempt $attempt of $max_attempts..."
-        if init_database; then
-            log "✅ Database initialized successfully"
-            break
-        fi
-        
-        if [ $attempt -eq $max_attempts ]; then
-            log "❌ Failed to initialize database after $max_attempts attempts"
-            exit 1
-        fi
-        
-        sleep 5
-        attempt=$((attempt + 1))
-    done
+    # Create admin user
+    create_admin_user
     
-    # Start the application
-    log "Starting application..."
-    exec "$@"
+    log \"✅ Initialization complete\"
 }
 
 # Run the main function
-main "$@"
+main \"$@\"
+
+# Start the Flask application
+exec gunicorn --bind 0.0.0.0:3001 --timeout 120 --workers 4 --worker-class gthread --threads 4 app:app"
