@@ -1,3 +1,4 @@
+#!/bin/bash
 set -e
 
 # Enable debug output
@@ -128,4 +129,4 @@ main() {
 main \"$@\"
 
 # Start the Flask application
-exec gunicorn --bind 0.0.0.0:3001 --timeout 120 --workers 4 --worker-class gthread --threads 4 app:app"
+exec gunicorn --bind 0.0.0.0:3001 --timeout 120 --workers 4 --worker-class gthread --threads 4 app:app
