@@ -76,7 +76,7 @@ init_database() {
 # Create admin user if it doesn't exist
 create_admin_user() {
     log \"Ensuring admin user exists...\"
-    python3 -c \"
+    python3 << 'EOF'
 import os
 import sys
 from app import app, db, User
@@ -94,13 +94,13 @@ with app.app_context():
             db.session.commit()
             print('✅ Admin user created')
         else:
-            print('ℹ️  Admin user already exists')
+            print('ℹ️ Admin user already exists')
     except Exception as e:
         print(f'❌ Error creating admin user: {str(e)}')
         import traceback
         traceback.print_exc()
         sys.exit(1)
-    \"
+EOF
 }
 
 # Main execution
