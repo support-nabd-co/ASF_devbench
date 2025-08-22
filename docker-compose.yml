@@ -8,9 +8,9 @@ services:
       dockerfile: Dockerfile
     container_name: devbench-manager
     restart: unless-stopped
-    user: "1000:1000"  # Run as non-root user
+    user: \"1000:1000\"  # Run as non-root user
     ports:
-      - "8082:3001"
+      - \"8083:3001\"
     environment:
       # Flask Configuration
       - FLASK_ENV=production
@@ -46,15 +46,15 @@ services:
       - openproject_openproject_network  # Join OpenProject network so Caddy can reach us
       - default  # Keep default network for other services if needed
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:3001/api/health\"]
       interval: 30s
       timeout: 10s
       retries: 3
-    entrypoint: ["/app/entrypoint.sh"]
-    command: ["gunicorn", "--bind", "0.0.0.0:3001", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "debug", "app:app"]
+    entrypoint: [\"/app/entrypoint.sh\"]
+    command: [\"gunicorn\", \"--bind\", \"0.0.0.0:3001\", \"--workers\", \"2\", \"--threads\", \"4\", \"--worker-class\", \"gthread\", \"--access-logfile\", \"-\", \"--error-logfile\", \"-\", \"--log-level\", \"debug\", \"app:app\"]
 
 networks:
   openproject_openproject_network:
     external: true
   default:
-    driver: bridge
+    driver: bridge"
