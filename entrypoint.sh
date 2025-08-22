@@ -1,4 +1,3 @@
-#!/bin/bash
 set -e
 
 # Enable debug output
