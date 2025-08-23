@@ -11,6 +11,7 @@ services:
     ports:
       - "9090:9090"
     environment:
+     - MIGRATE=true
       - FLASK_ENV=production
       - FLASK_APP=app.py
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
