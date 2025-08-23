@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
     user: \"1000:1000\"  # Run as non-root user
     ports:
-      - \"8083:3001\"
+      - 8083:3001
     environment:
       # Flask Configuration
       - FLASK_ENV=production
