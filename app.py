@@ -47,29 +47,27 @@ CORS(app, supports_credentials=True, origins=['http://localhost:3000', 'http://l
 class User(UserMixin, db.Model):
     """User model for authentication and VM ownership"""
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(120), nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False, index=True)
+    password_hash = db.Column(db.String(128))
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationship to VMs
-    vms = db.relationship('VM', backref='owner', lazy=True, cascade='all, delete-orphan')
-    
+    vms = db.relationship('VM', backref='owner', lazy=True)
+
     def set_password(self, password):
-        """Hash and set password"""
         self.password_hash = generate_password_hash(password)
-    
+
     def check_password(self, password):
-        """Check password against hash"""
         return check_password_hash(self.password_hash, password)
-    
+
+    def get_id(self):
+        return str(self.id)
+
     def to_dict(self):
-        """Convert user to dictionary"""
         return {
             'id': self.id,
-            'username': self.username,
-            'is_admin': self.is_admin,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'email': self.email,
+            'isAdmin': self.is_admin,
+            'createdAt': self.created_at.isoformat() if self.created_at else None,
             'vm_count': len(self.vms)
         }
 
@@ -182,22 +180,20 @@ def register():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    """User login endpoint"""
-    try:
-        data = request.get_json()
-        username = data.get('username')
-        password = data.get('password')
-        
-        print(f"🔐 Login attempt for username: {username}")
-        
-        if not username or not password:
-            print("❌ Missing username or password")
-            return jsonify({'error': 'Username and password are required'}), 400
-        
-        user = User.query.filter_by(username=username).first()
-        
-        if not user:
-            print(f"❌ User not found: {username}")
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    
+    if not email or not password:
+        return jsonify({'error': 'Email and password are required'}), 400
+    
+    user = User.query.filter_by(email=email).first()
+    
+    if user and user.check_password(password):
+        login_user(user)
+        return jsonify(user.to_dict())
+    
+    return jsonify({'error': 'Invalid email or password'}), 401
             return jsonify({'error': 'Invalid credentials'}), 401
         
         print(f"✅ User found: {username}, is_admin: {user.is_admin}")
@@ -397,21 +393,17 @@ def create_user():
     """Create user (admin only)"""
     try:
         data = request.get_json()
-        username = data.get('username', '').strip()
         email = data.get('email', '').strip()
         password = data.get('password', '')
         is_admin = data.get('isAdmin', False)
         
-        if not all([username, email, password]):
-            return jsonify({'error': 'Username, email and password are required'}), 400
-        
-        if User.query.filter_by(username=username).first():
-            return jsonify({'error': 'Username already exists'}), 400
+        if not all([email, password]):
+            return jsonify({'error': 'Email and password are required'}), 400
             
         if User.query.filter_by(email=email).first():
             return jsonify({'error': 'Email already exists'}), 400
         
-        user = User(username=username, email=email, is_admin=is_admin)
+        user = User(email=email, is_admin=is_admin)
         user.set_password(password)
         
         db.session.add(user)
