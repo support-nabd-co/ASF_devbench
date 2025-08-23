@@ -9,12 +9,12 @@ services:
     restart: unless-stopped
     user: "1000:1000"
     ports:
-      - "8083:3001"
+      - "8083:8084"
     environment:
       - FLASK_ENV=production
       - FLASK_APP=app.py
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-      - PORT=3001
+      - PORT=8084
       - DATABASE_URL=sqlite:////app/data/devbench.db
       - SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
       - LOGS_DIR=/app/logs
