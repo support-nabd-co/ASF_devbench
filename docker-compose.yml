@@ -1,57 +1,38 @@
 version: '3.8'
 
 services:
-  # ASF Devbench Manager Application (Flask Version)
   devbench-app:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: devbench-manager
     restart: unless-stopped
-    user: "1000:1000"  # Run as non-root user
+    user: "1000:1000"
     ports:
       - "8083:3001"
     environment:
-      # Flask Configuration
       - FLASK_ENV=production
       - FLASK_APP=app.py
-      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production-make-it-long-and-random}
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
       - PORT=3001
-      
-      # Database Configuration - Using persistent SQLite
       - DATABASE_URL=sqlite:////app/data/devbench.db
       - SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
-      
-      # Logs Configuration
       - LOGS_DIR=/app/logs
-      
-      # Admin Configuration
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
-      
-      # Domain Configuration
-      - DOMAIN=${DOMAIN:-tbm.asf.nabd-co.com}
-      - SSL_EMAIL=${SSL_EMAIL:-your-email@example.com}
-      
-      # VM Provisioning
-      - PROVISION_SCRIPT_PATH=./provision_vm.sh
     volumes:
-      # Persistent data and logs with proper permissions
       - ./data:/app/data
       - ./logs:/app/logs
-      # Mount environment file if it exists
       - ./.env:/app/.env:ro
-      # Mount provision script to make it accessible
       - ./provision_vm.sh:/app/provision_vm.sh:ro
     networks:
-      - openproject_openproject_network  # Join OpenProject network so Caddy can reach us
-      - default  # Keep default network for other services if needed
+      - openproject_openproject_network
+      - default
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s
       timeout: 10s
       retries: 3
     entrypoint: ["/app/entrypoint.sh"]
-    command: ["gunicorn", "--bind", "0.0.0.0:3001", "--workers", "2", "--threads", "4", "--worker-class", "gthread", "--access-logfile", "-", "--error-logfile", "-", "--log-level", "debug", "app:app"]
 
 networks:
   openproject_openproject_network:
