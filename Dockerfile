@@ -40,7 +40,7 @@ RUN apt-get update && \
     && rm -rf /usr/share/man/* \
     && rm -rf /tmp/*
 
-# Set working directory and copy files
+# Set working directory
 WORKDIR /app
 
 # Copy requirements first to leverage Docker cache
@@ -49,13 +49,17 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
-# Copy application files
-COPY . .
+# Copy only necessary files for the build
+COPY app.py .
+COPY migrations/ ./migrations/
+COPY entrypoint.sh .
+COPY init-database.sh .
+COPY provision_vm.sh .
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/migrations /app/data /app/logs /app/data/backups && \
-    chown -R 1000:1000 /app /app/migrations /app/data /app/logs && \
-    chmod -R 755 /app /app/migrations /app/data /app/logs && \
+RUN mkdir -p /app/migrations /app/data /app/logs /app/data/backups /app/frontend/build && \
+    chown -R 1000:1000 /app && \
+    chmod -R 755 /app && \
     chmod +x /app/*.sh
 
 # Set entrypoint script
