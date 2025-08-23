@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -146,24 +147,24 @@ def register():
     """User registration endpoint"""
     try:
         data = request.get_json()
-        username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
         password = data.get('password', '')
         
-        if not username or not password:
-            return jsonify({'error': 'Username and password are required'}), 400
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
         
-        if len(username) < 3:
-            return jsonify({'error': 'Username must be at least 3 characters'}), 400
+        if not re.match(r'^[^@]+@[^@]+\.[^@]+$', email):
+            return jsonify({'error': 'Invalid email format'}), 400
         
         if len(password) < 6:
             return jsonify({'error': 'Password must be at least 6 characters'}), 400
         
         # Check if user already exists
-        if User.query.filter_by(username=username).first():
-            return jsonify({'error': 'Username already exists'}), 400
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already registered'}), 400
         
         # Create new user
-        user = User(username=username)
+        user = User(email=email)
         user.set_password(password)
         
         db.session.add(user)
@@ -180,40 +181,26 @@ def register():
 
 @app.route('/api/login', methods=['POST'])
 def login():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-    
-    if not email or not password:
-        return jsonify({'error': 'Email and password are required'}), 400
-    
-    user = User.query.filter_by(email=email).first()
-    
-    if user and user.check_password(password):
-        login_user(user)
-        return jsonify(user.to_dict())
-    
-    return jsonify({'error': 'Invalid email or password'}), 401
-            return jsonify({'error': 'Invalid credentials'}), 401
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        password = data.get('password')
         
-        print(f"✅ User found: {username}, is_admin: {user.is_admin}")
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
         
-        if user.check_password(password):
-            print(f"✅ Password verification successful for: {username}")
+        user = User.query.filter_by(email=email).first()
+        
+        if user and user.check_password(password):
             login_user(user)
             return jsonify({
                 'message': 'Login successful',
-                'user': {
-                    'username': user.username,
-                    'is_admin': user.is_admin
-                }
+                'user': user.to_dict()
             }), 200
-        else:
-            print(f"❌ Password verification failed for: {username}")
-            return jsonify({'error': 'Invalid credentials'}), 401
-            
+        
+        return jsonify({'error': 'Invalid email or password'}), 401
+        
     except Exception as e:
-        print(f"❌ Login error: {str(e)}")
         return jsonify({'error': 'Login failed'}), 500
 
 @app.route('/api/logout', methods=['POST'])
