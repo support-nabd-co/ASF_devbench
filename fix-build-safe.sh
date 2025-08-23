@@ -467,7 +467,13 @@ build_and_start_containers() {
     print_success "Database is ready"
     
     # Initialize database
-    initialize_database
+    # Find where initialize_database is called and update it to:
+    if [ "${MIGRATE:-true}" = "true" ]; then
+        initialize_database || {
+            print_error "Database initialization failed"
+            exit 1
+        }
+    fi
     
     # Run database migrations
     print_status "Running database migrations..."
@@ -592,27 +598,43 @@ EOL'
 }
 
 # Function to initialize database
+# Function to initialize database
 initialize_database() {
     print_status "Initializing database..."
     local max_retries=10
     local retry_count=0
     
+    # First, check if migrations directory exists, if not initialize it
+    if [ ! -d "migrations" ]; then
+        print_status "Initializing database migrations..."
+        if ! docker-compose run --rm devbench-manager flask db init; then
+            print_error "Failed to initialize database migrations"
+            return 1
+        fi
+        
+        print_status "Creating initial migration..."
+        if ! docker-compose run --rm devbench-manager flask db migrate -m "Initial migration"; then
+            print_error "Failed to create initial migration"
+            return 1
+        fi
+    fi
+    
+    # Then apply migrations
     while [ $retry_count -lt $max_retries ]; do
-        if docker exec -i devbench-manager /bin/sh -c "flask db upgrade" 2>/dev/null; then
-            print_success "Database initialized successfully"
+        if docker-compose exec -T devbench-manager flask db upgrade; then
+            print_success "Database migrations applied successfully"
             return 0
         fi
         
         retry_count=$((retry_count + 1))
-        print_warning "Database initialization attempt $retry_count failed, retrying in 5 seconds..."
+        print_warning "Database migration attempt $retry_count failed, retrying in 5 seconds..."
         sleep 5
     done
     
-    print_error "Failed to initialize database after $max_retries attempts"
-    docker logs devbench-manager --tail 50 2>/dev/null || true
-    exit 1
+    print_error "Failed to apply database migrations after $max_retries attempts"
+    docker-compose logs --tail=50 devbench-manager
+    return 1
 }
-
 # Function to display final status
 display_final_status() {
     print_step 9 "Deployment Complete!"
