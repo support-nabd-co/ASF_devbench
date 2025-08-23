@@ -2,38 +2,31 @@ version: '3.8'
 
 services:
   devbench-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    build: .
     container_name: devbench-manager
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "9090:3001"
     environment:
-      - MIGRATE=true
       - FLASK_ENV=production
       - FLASK_APP=app.py
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
-      - PORT=9090
+      - PORT=3001
       - DATABASE_URL=sqlite:////app/data/devbench.db
       - SQLALCHEMY_DATABASE_URI=sqlite:////app/data/devbench.db
       - LOGS_DIR=/app/logs
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-ASF_TB}
     volumes:
       - devbench_data:/app/data
-      - ./migrations:/app/migrations
       - ./logs:/app/logs
-      - ./.env:/app/.env:ro
-      - ./provision_vm.sh:/app/provision_vm.sh:ro
-    networks:
-      - app-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9090/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-    entrypoint: ["/app/entrypoint.sh"]
+    networks:
+      - app-network
 
 networks:
   app-network:
