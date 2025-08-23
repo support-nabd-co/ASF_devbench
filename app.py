@@ -398,16 +398,20 @@ def create_user():
     try:
         data = request.get_json()
         username = data.get('username', '').strip()
+        email = data.get('email', '').strip()
         password = data.get('password', '')
         is_admin = data.get('isAdmin', False)
         
-        if not username or not password:
-            return jsonify({'error': 'Username and password are required'}), 400
+        if not all([username, email, password]):
+            return jsonify({'error': 'Username, email and password are required'}), 400
         
         if User.query.filter_by(username=username).first():
             return jsonify({'error': 'Username already exists'}), 400
+            
+        if User.query.filter_by(email=email).first():
+            return jsonify({'error': 'Email already exists'}), 400
         
-        user = User(username=username, is_admin=is_admin)
+        user = User(username=username, email=email, is_admin=is_admin)
         user.set_password(password)
         
         db.session.add(user)
