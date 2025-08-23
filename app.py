@@ -636,17 +636,18 @@ def init_db():
         db.create_all()
         
         # Create default admin user if it doesn't exist
-        admin = User.query.filter_by(username='admin').first()
+        admin_email = os.environ.get('ADMIN_EMAIL', 'admin@example.com')
+        admin = User.query.filter_by(email=admin_email).first()
         if not admin:
             admin_password = os.environ.get('ADMIN_PASSWORD', 'admin123')
-            print(f"🔧 Creating admin user with password from environment: {admin_password}")
-            admin = User(username='admin', is_admin=True)
+            print(f"🔧 Creating admin user with email: {admin_email}")
+            admin = User(email=admin_email, is_admin=True)
             admin.set_password(admin_password)
             db.session.add(admin)
             db.session.commit()
-            print("✅ Created default admin user (username: admin)")
+            print(f"✅ Created default admin user (email: {admin_email})")
         else:
-            print("ℹ️ Admin user already exists, skipping creation")
+            print(f"ℹ️ Admin user {admin_email} already exists, skipping creation")
 
 if __name__ == '__main__':
     init_db()
