@@ -8,4 +8,9 @@ if [ "$MIGRATE" = "true" ]; then
 fi
 
 # Start the application
-exec "$@"
+if [ "$#" -gt 0 ]; then
+    exec "$@"
+else
+    # Default command: start the Flask application
+    exec gunicorn -b :9090 --access-logfile - --error-logfile - app:app
+fi
