@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const Login = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -12,8 +12,8 @@ const Login = ({ onLogin }) => {
   const handleLogin = async (e) => {
     e.preventDefault();
     
-    if (!username.trim() || !password) {
-      setError('Please enter both username and password');
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password');
       return;
     }
 
@@ -28,7 +28,7 @@ const Login = ({ onLogin }) => {
         },
         credentials: 'include', // Important for session cookies
         body: JSON.stringify({ 
-          username: username.trim(),
+          email: email.trim(),
           password: password
         }),
       });
@@ -60,13 +60,15 @@ const Login = ({ onLogin }) => {
   const handleRegister = async (e) => {
     e.preventDefault();
     
-    if (!username.trim() || !password) {
-      setError('Please enter both username and password');
+    if (!email.trim() || !password) {
+      setError('Please enter both email and password');
       return;
     }
 
-    if (username.length < 3) {
-      setError('Username must be at least 3 characters');
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
       return;
     }
 
@@ -86,7 +88,7 @@ const Login = ({ onLogin }) => {
         },
         credentials: 'include',
         body: JSON.stringify({ 
-          username: username.trim(),
+          email: email.trim(),
           password: password
         }),
       });
@@ -102,7 +104,7 @@ const Login = ({ onLogin }) => {
           },
           credentials: 'include',
           body: JSON.stringify({ 
-            username: username.trim(),
+            email: email.trim(),
             password: password
           }),
         });
@@ -147,14 +149,14 @@ const Login = ({ onLogin }) => {
                 Username
               </label>
               <input
-                id="username"
-                name="username"
-                type="text"
+                id="email"
+                name="email"
+                type="email"
                 required
                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
               />
             </div>
