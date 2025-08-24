@@ -218,7 +218,7 @@ const Login = ({ onLogin }) => {
               onClick={() => {
                 setShowRegister(!showRegister);
                 setError('');
-                setUsername('');
+                setEmail('');
                 setPassword('');
               }}
               className="text-primary-600 hover:text-primary-500 text-sm font-medium"

@@ -27,10 +27,13 @@ services:
       retries: 3
     networks:
       - app-network
+      - caddy_network
 
 networks:
   app-network:
     driver: bridge
+  caddy_network:
+    external: true
 
 volumes:
   devbench_data:
