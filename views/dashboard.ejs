@@ -25,18 +25,20 @@
                             <div class="connection-info">
                                 <h6><i class="fas fa-plug"></i> Connection Info:</h6>
                                 ${db.ssh_info ? `
-                                    <div class="mb-2">
+                                    <div class="mb-3">
                                         <strong><i class="fas fa-terminal"></i> SSH:</strong><br>
                                         <code>${db.ssh_info}</code>
                                         <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyToClipboard('${db.ssh_info}')">
                                             <i class="fas fa-copy"></i>
                                         </button>
+                                        <br><small class="text-muted mt-1"><i class="fas fa-key"></i> <strong>Password:</strong> ASF</small>
                                     </div>
                                 ` : ''}
                                 ${db.vnc_info ? `
-                                    <div class="mb-2">
+                                    <div class="mb-3">
                                         <strong><i class="fas fa-desktop"></i> VNC:</strong><br>
                                         <code>${db.vnc_info}</code>
+                                        <br><small class="text-muted mt-1"><i class="fas fa-key"></i> <strong>Password:</strong> ASF</small>
                                     </div>
                                 ` : ''}
                             </div>
