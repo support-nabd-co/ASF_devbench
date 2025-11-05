@@ -40,8 +40,8 @@ COMMAND="$1"
 VM_NAME="$2"
 
 # Validate command
-if [[ ! "$COMMAND" =~ ^(create|status|delete|start|stop)$ ]]; then
-    log "Error: Invalid command '$COMMAND'. Must be one of: create, status, delete, start, stop"
+if [[ ! "$COMMAND" =~ ^(create|status|delete|start|stop|activate)$ ]]; then
+    log "Error: Invalid command '$COMMAND'. Must be one of: create, status, delete, start, stop, activate"
     exit 1
 fi
 

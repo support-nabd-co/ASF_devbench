@@ -1,0 +1,81 @@
+/* Custom styles for DevBench Manager */
+
+.navbar-brand {
+    font-weight: bold;
+    color: #007bff !important;
+    display: flex;
+    align-items: center;
+}
+
+.navbar-brand img {
+    height: 40px;
+    margin-right: 10px;
+}
+
+.company-logo {
+    max-height: 40px;
+    width: auto;
+}
+
+.status-active {
+    color: #28a745;
+}
+
+.status-inactive {
+    color: #dc3545;
+}
+
+.status-creating {
+    color: #ffc107;
+}
+
+.log-output {
+    background-color: #1e1e1e;
+    color: #ffffff;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    padding: 15px;
+    border-radius: 5px;
+    max-height: 400px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+}
+
+.connection-info {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    padding: 10px;
+    margin-top: 10px;
+}
+
+.connection-info code {
+    background-color: #e9ecef;
+    padding: 2px 4px;
+    border-radius: 3px;
+    word-break: break-all;
+}
+
+.login-card {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.brand-colors {
+    background: linear-gradient(135deg, #f39c12 0%, #2980b9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* NABD Solutions brand colors */
+.nabd-orange {
+    color: #f39c12;
+}
+
+.nabd-blue {
+    color: #2980b9;
+}
+
+.bg-nabd-gradient {
+    background: linear-gradient(135deg, #f39c12 0%, #2980b9 100%);
+}

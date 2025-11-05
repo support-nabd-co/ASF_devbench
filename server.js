@@ -449,14 +449,21 @@ function executeProvisionScript(command, vmName, userId, devbenchId) {
                 // Parse the output to extract actual VM name and connection info
                 const actualNameMatch = output.match(/✅ VM '([^']+)' started with IP:/);
                 const ipMatch = output.match(/VM IP: (\d+\.\d+\.\d+\.\d+)/);
-                const sshMatch = output.match(/SSH: (.+)/);
-                const vncMatch = output.match(/VNC: (.+)/);
                 
                 if (actualNameMatch) {
                     const actualName = actualNameMatch[1];
                     const vmIp = ipMatch ? ipMatch[1] : null;
-                    const sshInfo = sshMatch ? sshMatch[1] : null;
-                    const vncInfo = vncMatch ? vncMatch[1] : null;
+                    
+                    // Generate SSH and VNC info based on the IP
+                    let sshInfo = null;
+                    let vncInfo = null;
+                    
+                    if (vmIp) {
+                        sshInfo = `ssh -t asf@asf-tb.duckdns.org "ssh asf_user@${vmIp}"`;
+                        // Look for VNC info in output or generate default
+                        const vncMatch = output.match(/VNC: (.+)/);
+                        vncInfo = vncMatch ? vncMatch[1] : `connect to host at port 5901 (e.g., via your VNC client)`;
+                    }
                     
                     console.log(`Updating database: ${actualName}, IP: ${vmIp}`);
                     
@@ -506,8 +513,18 @@ app.get('/check-status/:id', requireAuth, (req, res) => {
             output += data.toString();
         });
         
+        child.stderr.on('data', (data) => {
+            output += data.toString();
+        });
+        
         child.on('close', (code) => {
-            const status = output.trim() === 'active' ? 'active' : 'inactive';
+            // Parse status from output - look for "active" or "inactive" in the output
+            let status = 'inactive';
+            if (output.includes('active')) {
+                status = 'active';
+            }
+            
+            console.log(`Status check for ${devbench.actual_name}: ${status} (exit code: ${code})`);
             
             db.run('UPDATE devbenches SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', 
                    [status, devbenchId]);
@@ -530,10 +547,20 @@ setInterval(() => {
                 output += data.toString();
             });
             
+            child.stderr.on('data', (data) => {
+                output += data.toString();
+            });
+            
             child.on('close', (code) => {
-                const status = output.trim() === 'active' ? 'active' : 'inactive';
+                // Parse status from output - look for "active" in the output
+                let status = 'inactive';
+                if (output.includes('active')) {
+                    status = 'active';
+                }
                 
                 if (status !== devbench.status) {
+                    console.log(`Status changed for ${devbench.actual_name}: ${devbench.status} -> ${status}`);
+                    
                     db.run('UPDATE devbenches SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', 
                            [status, devbench.id]);
                     

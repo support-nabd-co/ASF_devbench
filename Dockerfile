@@ -14,6 +14,9 @@ RUN npm install
 # Copy application files
 COPY . .
 
+# Ensure public directory permissions
+RUN chmod -R 755 /app/public
+
 # Create directories for database and logs
 RUN mkdir -p /app/data /app/logs
 
