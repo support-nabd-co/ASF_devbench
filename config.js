@@ -4,7 +4,7 @@ module.exports = {
     
     // Database configuration
     database: {
-        path: process.env.DB_PATH || './devbench.db'
+        path: process.env.DB_PATH || './data/devbench.db'
     },
     
     // Session configuration
