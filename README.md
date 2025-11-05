@@ -39,12 +39,22 @@ A web application for managing DevBench virtual machines with user authenticatio
 
 2. Make sure your `provision_vm.sh` script is in the project root
 
-3. Build and run with Docker Compose:
+3. Deploy using the deployment script:
 ```bash
-docker-compose up -d
+chmod +x deploy.sh
+./deploy.sh
 ```
 
-4. Access the application at `http://localhost:3001`
+Or manually with Docker Compose:
+```bash
+# Create network if needed
+docker network create caddy_network
+
+# Build and run
+docker-compose up -d --build
+```
+
+4. Access the application at `https://tbm.nabd-co.com` (via Caddy proxy)
 
 ### Manual Installation
 
@@ -71,6 +81,11 @@ Add this to your Caddyfile:
 tbm.nabd-co.com {
     reverse_proxy devbench-manager:3001
 }
+```
+
+Make sure your Caddy container is on the same `caddy_network`. If you need to create the network:
+```bash
+docker network create caddy_network
 ```
 
 ### Default Admin Account
@@ -160,10 +175,23 @@ tbm.nabd-co.com {
 
 ### Common Issues
 
-1. **Script timeout**: DevBench creation takes up to 30 minutes
-2. **SSH connection issues**: Ensure sshpass is installed and SSH credentials are correct
-3. **Permission issues**: Make sure the provision script is executable
-4. **Database issues**: Check SQLite file permissions
+1. **Cannot access via Caddy**: 
+   - Ensure `caddy_network` exists: `docker network create caddy_network`
+   - Check if Caddy container is on the same network
+   - Verify Caddyfile configuration points to `devbench-manager:3001`
+
+2. **Script timeout**: DevBench creation takes up to 30 minutes
+
+3. **SSH connection issues**: Ensure sshpass is installed and SSH credentials are correct
+
+4. **Permission issues**: Make sure the provision script is executable
+
+5. **Database issues**: Check SQLite file permissions
+
+6. **Container networking**: 
+   - Check networks: `docker network ls`
+   - Inspect container: `docker inspect devbench-manager`
+   - Check if both containers are on caddy_network
 
 ### Logs
 Application logs are available in the container or local environment where the app is running.

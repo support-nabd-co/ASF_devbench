@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
 # Install bash and other dependencies
-RUN apk add --no-cache bash sshpass openssh-client
+RUN apk add --no-cache bash sshpass openssh-client wget
 
 WORKDIR /app
 
@@ -14,8 +14,8 @@ RUN npm install
 # Copy application files
 COPY . .
 
-# Create directory for database
-RUN mkdir -p /app/data
+# Create directories for database and logs
+RUN mkdir -p /app/data /app/logs
 
 # Expose port
 EXPOSE 3001

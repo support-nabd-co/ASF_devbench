@@ -30,8 +30,8 @@ module.exports = {
     // Default admin user
     defaultAdmin: {
         username: 'admin',
-        email: 'admin@nabd-co.com',
-        password: 'admin123'
+        email: process.env.ADMIN_EMAIL || 'admin@nabd-co.com',
+        password: process.env.ADMIN_PASSWORD || 'admin123'
     },
     
     // Validation rules
