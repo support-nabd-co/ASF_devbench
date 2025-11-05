@@ -1,909 +1,460 @@
 const express = require('express');
-const cors = require('cors');
-const jwt = require('jsonwebtoken');
-const admin = require('firebase-admin');
-const { exec } = require('child_process');
-const { promisify } = require('util');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const sqlite3 = require('sqlite3').verbose();
+const bodyParser = require('body-parser');
+const { spawn } = require('child_process');
+const WebSocket = require('ws');
+const http = require('http');
 const path = require('path');
-const helmet = require('helmet');
-const morgan = require('morgan');
-require('dotenv').config();
+const config = require('./config');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-// Promisify exec for async/await usage
-const execAsync = promisify(exec);
+// Database setup
+const db = new sqlite3.Database(config.database.path);
 
-// JWT Secret - In production, use a secure random string from environment variables
-const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-in-production';
+// Initialize database tables
+db.serialize(() => {
+    // Users table
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        email TEXT NOT NULL,
+        password TEXT NOT NULL,
+        is_admin INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-// Admin credentials
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-this-password';
+    // DevBenches table
+    db.run(`CREATE TABLE IF NOT EXISTS devbenches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        actual_name TEXT,
+        status TEXT DEFAULT 'inactive',
+        ssh_info TEXT,
+        vnc_info TEXT,
+        vm_ip TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )`);
 
-// Script path - now local instead of SSH
-const PROVISION_SCRIPT_PATH = './provision_vm.sh';
-
-// Initialize Firebase Admin SDK with better error handling
-let db;
-try {
-  // Try to get Firebase config from environment variable
-  const firebaseConfigStr = process.env.FIREBASE_CONFIG;
-  const appId = process.env.APP_ID || 'devbench-app';
-  
-  console.log('🔍 Checking Firebase configuration...');
-  console.log(`📝 APP_ID: ${appId}`);
-  console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV}`);
-  
-  if (!firebaseConfigStr) {
-    throw new Error('FIREBASE_CONFIG environment variable is not set');
-  }
-  
-  console.log('✅ FIREBASE_CONFIG environment variable found');
-  console.log(`📏 Config length: ${firebaseConfigStr.length} characters`);
-  
-  let firebaseConfig;
-  try {
-    firebaseConfig = JSON.parse(firebaseConfigStr);
-    console.log('✅ Firebase config JSON parsed successfully');
-  } catch (parseError) {
-    throw new Error(`Failed to parse FIREBASE_CONFIG JSON: ${parseError.message}`);
-  }
-  
-  if (!firebaseConfig.project_id) {
-    throw new Error('Firebase config is missing project_id');
-  }
-  
-  if (!firebaseConfig.private_key) {
-    throw new Error('Firebase config is missing private_key');
-  }
-  
-  if (!firebaseConfig.client_email) {
-    throw new Error('Firebase config is missing client_email');
-  }
-  
-  console.log(`🏷️  Project ID: ${firebaseConfig.project_id}`);
-  console.log(`📧 Client Email: ${firebaseConfig.client_email}`);
-  
-  admin.initializeApp({
-    credential: admin.credential.cert(firebaseConfig),
-    projectId: firebaseConfig.project_id
-  });
-  
-  db = admin.firestore();
-  console.log('✅ Firebase Admin SDK initialized successfully');
-  console.log(`📊 Using Firestore project: ${firebaseConfig.project_id}`);
-  console.log(`🏷️  App ID: ${appId}`);
-  
-  // Test database connection
-  console.log('🔍 Testing Firestore connection...');
-  await db.collection('_health_check').doc('test').set({
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
-    status: 'connected'
-  });
-  console.log('✅ Firestore connection test successful');
-  
-} catch (error) {
-  console.error('❌ Failed to initialize Firebase Admin SDK:', error.message);
-  console.log('⚠️  Please check your FIREBASE_CONFIG environment variable');
-  console.log('💡 Expected format: JSON string with service account credentials');
-  console.log('🔧 Required fields: type, project_id, private_key_id, private_key, client_email, client_id, auth_uri, token_uri');
-  
-  // Log additional debugging info
-  if (process.env.FIREBASE_CONFIG) {
-    console.log('🔍 FIREBASE_CONFIG exists but has issues');
-    console.log(`📏 Length: ${process.env.FIREBASE_CONFIG.length} characters`);
-    console.log(`🔤 First 100 chars: ${process.env.FIREBASE_CONFIG.substring(0, 100)}...`);
-  } else {
-    console.log('❌ FIREBASE_CONFIG environment variable is completely missing');
-  }
-}
+    // Create default admin user if not exists
+    const adminPassword = bcrypt.hashSync(config.defaultAdmin.password, 10);
+    db.run(`INSERT OR IGNORE INTO users (username, email, password, is_admin) 
+            VALUES (?, ?, ?, 1)`, [config.defaultAdmin.username, config.defaultAdmin.email, adminPassword]);
+});
 
 // Middleware
-app.use(helmet({
-  contentSecurityPolicy: false // Disable CSP for development
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(express.static('public'));
+app.set('view engine', 'ejs');
+
+app.use(session({
+    secret: config.session.secret,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false, maxAge: config.session.maxAge }
 }));
-app.use(morgan('combined'));
-app.use(cors());
-app.use(express.json());
 
-// Serve static files from React build
-app.use(express.static(path.join(__dirname, 'frontend/build')));
-
-// JWT Authentication Middleware
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-};
-
-// Admin Authentication Middleware
-const authenticateAdmin = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    return res.status(401).json({ error: 'Admin access token required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired admin token' });
-    }
-    
-    // Check if user is admin
-    if (!user.isAdmin) {
-      return res.status(403).json({ error: 'Admin privileges required' });
-    }
-    
-    req.user = user;
-    next();
-  });
-};
-
-// API Routes
-
-/**
- * GET /api/devbenches/:id/logs
- * Get logs for a specific devbench
- */
-app.get('/api/devbenches/:id/logs', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { username } = req.user;
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const devbenchRef = db.collection('artifacts').doc(appId)
-      .collection('users').doc(username)
-      .collection('devbenches').doc(id);
-
-    const doc = await devbenchRef.get();
-    
-    if (!doc.exists) {
-      return res.status(404).json({ error: 'Devbench not found' });
-    }
-
-    const devbenchData = doc.data();
-    const responseData = { id, logs: [] };
-    
-    // Try to read from log file if available
-    if (devbenchData.logFile) {
-      try {
-        const logFilePath = devbenchData.logFile.replace(/\//g, path.sep);
-        if (fs.existsSync(logFilePath)) {
-          const fileContent = fs.readFileSync(logFilePath, 'utf8');
-          const logs = fileContent.split('\n').filter(line => line.trim() !== '');
-          responseData.logs = logs;
-          responseData.source = 'file';
-        }
-      } catch (fileError) {
-        console.error('Error reading log file:', fileError);
-        responseData.fileError = 'Failed to read log file';
-      }
-    }
-
-    // If no logs from file, try to get from Firestore
-    if (responseData.logs.length === 0 && devbenchData.logs) {
-      responseData.logs = Array.isArray(devbenchData.logs) 
-        ? devbenchData.logs 
-        : [String(devbenchData.logs)];
-      responseData.source = 'firestore';
-    }
-
-    // If still no logs, check if the devbench is still creating
-    if (responseData.logs.length === 0 && devbenchData.status === 'Creating') {
-      responseData.message = 'Devbench creation in progress. Please wait...';
-      responseData.status = 'creating';
-    } else if (responseData.logs.length === 0) {
-      responseData.message = 'No logs available for this devbench.';
-      responseData.status = 'no-logs';
+// Authentication middleware
+const requireAuth = (req, res, next) => {
+    if (req.session.userId) {
+        next();
     } else {
-      responseData.status = 'success';
+        res.redirect('/login');
     }
+};
 
-    // Add some metadata
-    responseData.updatedAt = devbenchData.updatedAt?.toDate() || new Date().toISOString();
-    responseData.devbenchStatus = devbenchData.status || 'unknown';
+const requireAdmin = (req, res, next) => {
+    if (req.session.userId && req.session.isAdmin) {
+        next();
+    } else {
+        res.status(403).send('Access denied');
+    }
+};
 
-    res.json(responseData);
+// WebSocket connections for real-time updates
+const clients = new Map();
 
-  } catch (error) {
-    console.error('Error fetching devbench logs:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch devbench logs',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+wss.on('connection', (ws, req) => {
+    const userId = req.session?.userId;
+    if (userId) {
+        clients.set(userId, ws);
+        
+        ws.on('close', () => {
+            clients.delete(userId);
+        });
+    }
+});
+
+// Broadcast to specific user
+const broadcastToUser = (userId, message) => {
+    const client = clients.get(userId);
+    if (client && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(message));
+    }
+};
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
     });
-  }
 });
 
-// API Routes
-
-/**
- * GET /api/health
- * Health check endpoint for Docker container monitoring
- */
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    version: '1.0.0'
-  });
-});
-
-/**
- * POST /api/login
- * Simple authentication endpoint that accepts any non-empty username
- * Returns a JWT token for subsequent API calls
- */
-app.post('/api/login', async (req, res) => {
-  try {
-    const { username } = req.body;
-
-    // Basic validation
-    if (!username || typeof username !== 'string' || username.trim().length === 0) {
-      return res.status(400).json({ error: 'Username is required and must be a non-empty string' });
+// Routes
+app.get('/', (req, res) => {
+    if (req.session.userId) {
+        if (req.session.isAdmin) {
+            res.redirect('/admin');
+        } else {
+            res.redirect('/dashboard');
+        }
+    } else {
+        res.redirect('/login');
     }
-
-    const trimmedUsername = username.trim();
-
-    // Check if user exists in Firestore
-    if (db) {
-      const appId = process.env.APP_ID || 'devbench-app';
-      const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
-      const userDoc = await userRef.get();
-
-      if (!userDoc.exists) {
-        return res.status(401).json({ error: 'User not found. Please contact an administrator to create your account.' });
-      }
-
-      const userData = userDoc.data();
-      if (userData.disabled) {
-        return res.status(401).json({ error: 'Account is disabled. Please contact an administrator.' });
-      }
-    }
-
-    // Generate JWT token (expires in 24 hours)
-    const token = jwt.sign(
-      { username: trimmedUsername },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.json({ token });
-    console.log(`✅ User logged in: ${trimmedUsername}`);
-
-  } catch (error) {
-    console.error('❌ Login error:', error);
-    res.status(500).json({ error: 'Internal server error during login' });
-  }
 });
 
-/**
- * POST /api/admin/login
- * Admin authentication endpoint
- * Returns a JWT token with admin privileges
- */
-app.post('/api/admin/login', async (req, res) => {
-  try {
+app.get('/login', (req, res) => {
+    res.render('login', { error: null });
+});
+
+app.post('/login', (req, res) => {
     const { username, password } = req.body;
-
-    // Validate admin credentials
-    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
-      return res.status(401).json({ error: 'Invalid admin credentials' });
-    }
-
-    // Generate JWT token with admin flag (expires in 24 hours)
-    const token = jwt.sign(
-      { username: ADMIN_USERNAME, isAdmin: true },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
-
-    res.json({ token });
-    console.log(`✅ Admin logged in: ${username}`);
-
-  } catch (error) {
-    console.error('❌ Admin login error:', error);
-    res.status(500).json({ error: 'Internal server error during admin login' });
-  }
-});
-
-/**
- * GET /api/devbenches
- * Fetch all devbenches for the authenticated user
- * Returns an array of devbench objects with real-time data
- */
-app.get('/api/devbenches', authenticateToken, async (req, res) => {
-  try {
-    const { username } = req.user;
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const devbenchesRef = db.collection('artifacts').doc(appId)
-      .collection('users').doc(username)
-      .collection('devbenches');
-
-    const snapshot = await devbenchesRef.orderBy('createdAt', 'desc').get();
     
-    const devbenches = [];
-    snapshot.forEach(doc => {
-      devbenches.push({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || new Date()
-      });
-    });
-
-    res.json(devbenches);
-    console.log(`✅ Fetched ${devbenches.length} devbenches for user: ${username}`);
-
-  } catch (error) {
-    console.error('❌ Error fetching devbenches:', error);
-    res.status(500).json({ error: 'Failed to fetch devbenches' });
-  }
-});
-
-/**
- * POST /api/devbenches/create
- * Create a new devbench by triggering the local provision_vm.sh script
- * Updates Firestore with real-time status updates
- */
-app.post('/api/devbenches/create', authenticateToken, async (req, res) => {
-  try {
-    const { devbenchName } = req.body;
-    const { username } = req.user;
-
-    // Validation
-    if (!devbenchName || typeof devbenchName !== 'string' || devbenchName.trim().length === 0) {
-      return res.status(400).json({ error: 'Devbench name is required and must be a non-empty string' });
-    }
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const trimmedDevbenchName = devbenchName.trim();
-    const appId = process.env.APP_ID || 'devbench-app';
-    
-    // Create initial devbench document in Firestore
-    const devbenchesRef = db.collection('artifacts').doc(appId)
-      .collection('users').doc(username)
-      .collection('devbenches');
-
-    const newDevbenchRef = await devbenchesRef.add({
-      name: trimmedDevbenchName,
-      status: 'Creating',
-      userId: username,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      details: {}
-    });
-
-    console.log(`✅ Created devbench document: ${newDevbenchRef.id} for user: ${username}`);
-
-    // Execute local provision_vm.sh script asynchronously
-    executeLocalScript(newDevbenchRef, trimmedDevbenchName, username);
-
-    // Return immediate response
-    res.json({
-      id: newDevbenchRef.id,
-      name: trimmedDevbenchName,
-      status: 'Creating',
-      userId: username,
-      createdAt: new Date(),
-      details: {}
-    });
-
-  } catch (error) {
-    console.error('❌ Error creating devbench:', error);
-    res.status(500).json({ error: 'Failed to create devbench' });
-  }
-});
-
-/**
- * Execute local provision_vm.sh script to provision VM
- * Updates Firestore document with results
- */
-// Create logs directory if it doesn't exist
-const fs = require('fs');
-const path = require('path');
-let logsDir; // Will be set based on availability
-
-// Try to use /root/devbench/logs first
-try {
-  const preferredLogsDir = '/root/devbench/logs';
-  
-  if (!fs.existsSync('/root/devbench')) {
-    fs.mkdirSync('/root/devbench', { recursive: true, mode: 0o755 });
-  }
-  
-  if (!fs.existsSync(preferredLogsDir)) {
-    fs.mkdirSync(preferredLogsDir, { recursive: true, mode: 0o777 });
-    console.log(`✅ Created logs directory at: ${preferredLogsDir}`);
-  } else {
-    console.log(`📁 Using existing logs directory: ${preferredLogsDir}`);
-  }
-  
-  // Ensure the directory is writable
-  fs.accessSync(preferredLogsDir, fs.constants.W_OK);
-  console.log(`🔓 Logs directory is writable`);
-  logsDir = preferredLogsDir;
-} catch (error) {
-  console.error('❌ Failed to initialize preferred logs directory:', error);
-  // Fallback to a local logs directory if we can't use /root/devbench/logs
-  const fallbackLogsDir = path.join(__dirname, 'logs');
-  if (!fs.existsSync(fallbackLogsDir)) {
-    fs.mkdirSync(fallbackLogsDir, { recursive: true });
-  }
-  console.log(`⚠️  Using fallback logs directory: ${fallbackLogsDir}`);
-  logsDir = fallbackLogsDir;
-}
-
-console.log(`📝 Final logs directory: ${logsDir}`);
-
-async function executeLocalScript(devbenchRef, devbenchName, username) {
-  const logMessages = [];
-  const logFile = path.join(logsDir, `${devbenchRef.id}.log`);
-  
-  // Helper function to log messages
-  const log = async (message, isError = false) => {
-    const timestamp = new Date().toISOString();
-    const logEntry = `[${timestamp}] ${message}`;
-    logMessages.push(logEntry);
-    
-    // Write to log file
-    fs.appendFileSync(logFile, logEntry + '\n');
-    
-    // Update logs in Firestore
-    try {
-      await devbenchRef.update({
-        logs: logMessages,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (updateError) {
-      console.error('Failed to update logs in Firestore:', updateError);
-    }
-    
-    if (isError) {
-      console.error(logEntry);
-    } else {
-      console.log(logEntry);
-    }
-  };
-
-  try {
-    await log(`🔄 Starting local script execution for devbench: ${devbenchName}`);
-    
-    // Create combined devbench name: <username>+<devbench name>
-    const combinedDevbenchName = `${username}+${devbenchName}`;
-    
-    // Execute the provision script with new argument format
-    const command = `${PROVISION_SCRIPT_PATH} create ${combinedDevbenchName}`;
-    await log(`🔄 Executing command: ${command}`);
-    
-    const { stdout, stderr } = await execAsync(command);
-    await log(`✅ Local script execution completed for devbench: ${devbenchName}`);
-    await log(`📄 Command output: ${stdout}`);
-    
-    if (stderr) {
-      await log(`⚠️ Script stderr: ${stderr}`, true);
-    }
-
-    // Parse the script output
-    let details = {};
-    try {
-      // Try to parse as JSON first
-      details = JSON.parse(stdout);
-    } catch (parseError) {
-      // If not JSON, treat as plain text and extract useful information
-      const lines = stdout.split('\n').filter(line => line.trim().length > 0);
-      const summary = lines[lines.length - 1] || 'VM provisioned successfully';
-      
-      await log(`ℹ️ ${summary}`);
-      
-      details = {
-        output: stdout,
-        summary: summary,
-        logs: logMessages
-      };
-
-      // Try to extract IP address from output
-      const ipMatch = stdout.match(/(\d+\.\d+\.\d+\.\d+)/);
-      if (ipMatch) {
-        const ip = ipMatch[1];
-        details.ip = ip;
-        details.sshCommand = `ssh user@${ip}`;
-        await log(`🌐 VM IP Address: ${ip}`);
-      }
-    }
-
-    // Update Firestore document with success
-    const updateData = {
-      status: 'Active',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      details: details,
-      combinedName: combinedDevbenchName,
-      logs: logMessages,
-      logFile: logFile.replace(/\\/g, '/') // Convert Windows paths to forward slashes
-    };
-    
-    await devbenchRef.update(updateData);
-    await log(`✅ Updated devbench ${devbenchName} status to Active`);
-
-  } catch (error) {
-    const errorMessage = `❌ Local script execution failed for devbench: ${devbenchName}: ${error.message}`;
-    await log(errorMessage, true);
-    
-    if (error.stderr) {
-      await log(`Error details: ${error.stderr}`, true);
-    }
-
-    // Update Firestore document with error
-    try {
-      await devbenchRef.update({
-        status: 'Error',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        error: error.message,
-        logs: logMessages,
-        logFile: logFile.replace(/\\/g, '/'),
-        details: {
-          error: error.message,
-          stderr: error.stderr || 'Unknown error occurred',
-          logs: logMessages
+    db.get('SELECT * FROM users WHERE username = ?', [username], (err, user) => {
+        if (err || !user || !bcrypt.compareSync(password, user.password)) {
+            return res.render('login', { error: 'Invalid username or password' });
         }
-      });
-    } catch (updateError) {
-      const updateErrorMsg = `❌ Failed to update devbench status to Error: ${updateError.message}`;
-      console.error(updateErrorMsg);
-      fs.appendFileSync(logFile, `\n${new Date().toISOString()} ${updateErrorMsg}\n`);
+        
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.isAdmin = user.is_admin === 1;
+        
+        if (user.is_admin) {
+            res.redirect('/admin');
+        } else {
+            res.redirect('/dashboard');
+        }
+    });
+});
+
+app.get('/logout', (req, res) => {
+    req.session.destroy();
+    res.redirect('/login');
+});
+
+// Admin routes
+app.get('/admin', requireAuth, requireAdmin, (req, res) => {
+    db.all(`SELECT u.*, COUNT(d.id) as devbench_count 
+            FROM users u 
+            LEFT JOIN devbenches d ON u.id = d.user_id 
+            WHERE u.is_admin = 0 
+            GROUP BY u.id`, (err, users) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Database error');
+        }
+        
+        db.all(`SELECT d.*, u.username 
+                FROM devbenches d 
+                JOIN users u ON d.user_id = u.id 
+                ORDER BY d.created_at DESC`, (err, devbenches) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('Database error');
+            }
+            
+            res.render('admin', { users, devbenches });
+        });
+    });
+});
+
+app.post('/admin/add-user', requireAuth, requireAdmin, (req, res) => {
+    const { username, email, password } = req.body;
+    
+    // Validate username (no spaces, numbers, or special characters)
+    if (!config.validation.username.test(username)) {
+        return res.status(400).json({ error: 'Username must contain only letters' });
     }
-  }
+    
+    const hashedPassword = bcrypt.hashSync(password, 10);
+    
+    db.run('INSERT INTO users (username, email, password) VALUES (?, ?, ?)', 
+           [username, email, hashedPassword], function(err) {
+        if (err) {
+            if (err.code === 'SQLITE_CONSTRAINT') {
+                return res.status(400).json({ error: 'Username already exists' });
+            }
+            return res.status(500).json({ error: 'Database error' });
+        }
+        res.json({ success: true });
+    });
+});
+
+app.post('/admin/delete-user/:id', requireAuth, requireAdmin, (req, res) => {
+    const userId = req.params.id;
+    
+    // Delete user's devbenches first
+    db.run('DELETE FROM devbenches WHERE user_id = ?', [userId], (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        // Delete user
+        db.run('DELETE FROM users WHERE id = ? AND is_admin = 0', [userId], (err) => {
+            if (err) {
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json({ success: true });
+        });
+    });
+});
+
+app.post('/admin/reset-password/:id', requireAuth, requireAdmin, (req, res) => {
+    const userId = req.params.id;
+    const { newPassword } = req.body;
+    
+    const hashedPassword = bcrypt.hashSync(newPassword, 10);
+    
+    db.run('UPDATE users SET password = ? WHERE id = ? AND is_admin = 0', 
+           [hashedPassword, userId], (err) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        res.json({ success: true });
+    });
+});
+
+// User dashboard
+app.get('/dashboard', requireAuth, (req, res) => {
+    if (req.session.isAdmin) {
+        return res.redirect('/admin');
+    }
+    
+    db.all('SELECT * FROM devbenches WHERE user_id = ? ORDER BY created_at DESC', 
+           [req.session.userId], (err, devbenches) => {
+        if (err) {
+            console.error(err);
+            return res.status(500).send('Database error');
+        }
+        
+        res.render('dashboard', { 
+            username: req.session.username, 
+            devbenches 
+        });
+    });
+});
+
+// DevBench operations
+app.post('/create-devbench', requireAuth, (req, res) => {
+    const { name } = req.body;
+    
+    // Validate devbench name (only letters, numbers, hyphens, underscores)
+    if (!config.validation.devbenchName.test(name)) {
+        return res.status(400).json({ 
+            error: 'DevBench name can only contain letters, numbers, hyphens, and underscores' 
+        });
+    }
+    
+    const fullName = `${req.session.username}_${name}`;
+    
+    // Check if devbench already exists
+    db.get('SELECT * FROM devbenches WHERE user_id = ? AND name = ?', 
+           [req.session.userId, name], (err, existing) => {
+        if (err) {
+            return res.status(500).json({ error: 'Database error' });
+        }
+        
+        if (existing) {
+            return res.status(400).json({ error: 'DevBench with this name already exists' });
+        }
+        
+        // Insert into database first
+        db.run('INSERT INTO devbenches (user_id, name, status) VALUES (?, ?, ?)', 
+               [req.session.userId, name, 'creating'], function(err) {
+            if (err) {
+                return res.status(500).json({ error: 'Database error' });
+            }
+            
+            const devbenchId = this.lastID;
+            
+            // Start the provision script
+            executeProvisionScript('create', fullName, req.session.userId, devbenchId);
+            
+            res.json({ success: true, devbenchId });
+        });
+    });
+});
+
+app.post('/delete-devbench/:id', requireAuth, (req, res) => {
+    const devbenchId = req.params.id;
+    
+    db.get('SELECT * FROM devbenches WHERE id = ? AND user_id = ?', 
+           [devbenchId, req.session.userId], (err, devbench) => {
+        if (err || !devbench) {
+            return res.status(404).json({ error: 'DevBench not found' });
+        }
+        
+        if (devbench.actual_name) {
+            executeProvisionScript('delete', devbench.actual_name, req.session.userId, devbenchId);
+        }
+        
+        db.run('DELETE FROM devbenches WHERE id = ?', [devbenchId], (err) => {
+            if (err) {
+                return res.status(500).json({ error: 'Database error' });
+            }
+            res.json({ success: true });
+        });
+    });
+});
+
+app.post('/activate-devbench/:id', requireAuth, (req, res) => {
+    const devbenchId = req.params.id;
+    
+    db.get('SELECT * FROM devbenches WHERE id = ? AND user_id = ?', 
+           [devbenchId, req.session.userId], (err, devbench) => {
+        if (err || !devbench) {
+            return res.status(404).json({ error: 'DevBench not found' });
+        }
+        
+        if (devbench.actual_name) {
+            executeProvisionScript('activate', devbench.actual_name, req.session.userId, devbenchId);
+        }
+        
+        res.json({ success: true });
+    });
+});
+
+// Function to execute provision script
+function executeProvisionScript(command, vmName, userId, devbenchId) {
+    const scriptPath = config.provision.scriptPath;
+    const child = spawn('bash', [scriptPath, command, vmName]);
+    
+    let output = '';
+    
+    child.stdout.on('data', (data) => {
+        const chunk = data.toString();
+        output += chunk;
+        
+        // Broadcast real-time output to user
+        broadcastToUser(userId, {
+            type: 'script_output',
+            devbenchId,
+            data: chunk
+        });
+    });
+    
+    child.stderr.on('data', (data) => {
+        const chunk = data.toString();
+        output += chunk;
+        
+        broadcastToUser(userId, {
+            type: 'script_output',
+            devbenchId,
+            data: chunk
+        });
+    });
+    
+    child.on('close', (code) => {
+        if (command === 'create' && code === 0) {
+            // Parse the output to extract actual VM name and connection info
+            const actualNameMatch = output.match(/✅ VM '([^']+)' started with IP:/);
+            const ipMatch = output.match(/VM IP: (\d+\.\d+\.\d+\.\d+)/);
+            const sshMatch = output.match(/SSH: (.+)/);
+            const vncMatch = output.match(/VNC: (.+)/);
+            
+            if (actualNameMatch) {
+                const actualName = actualNameMatch[1];
+                const vmIp = ipMatch ? ipMatch[1] : null;
+                const sshInfo = sshMatch ? sshMatch[1] : null;
+                const vncInfo = vncMatch ? vncMatch[1] : null;
+                
+                db.run(`UPDATE devbenches SET 
+                        actual_name = ?, status = 'active', vm_ip = ?, 
+                        ssh_info = ?, vnc_info = ?, updated_at = CURRENT_TIMESTAMP 
+                        WHERE id = ?`, 
+                       [actualName, vmIp, sshInfo, vncInfo, devbenchId]);
+            }
+        }
+        
+        broadcastToUser(userId, {
+            type: 'script_complete',
+            devbenchId,
+            exitCode: code
+        });
+    });
 }
 
-/**
- * POST /api/devbenches/activate
- * Activate a devbench by calling the provision script with activate command
- */
-app.post('/api/devbenches/activate', authenticateToken, async (req, res) => {
-  try {
-    const { devbenchId } = req.body;
-    const username = req.user.username;
-
-    if (!devbenchId) {
-      return res.status(400).json({ error: 'Devbench ID is required' });
-    }
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const devbenchRef = db.collection('artifacts').doc(appId)
-      .collection('users').doc(username)
-      .collection('devbenches').doc(devbenchId);
-
-    // Get devbench document
-    const devbenchDoc = await devbenchRef.get();
-    if (!devbenchDoc.exists) {
-      return res.status(404).json({ error: 'Devbench not found' });
-    }
-
-    const devbenchData = devbenchDoc.data();
-    const combinedName = devbenchData.combinedName || `${username}+${devbenchData.name}`;
-
-    // Execute activate command
-    const command = `${PROVISION_SCRIPT_PATH} activate ${combinedName}`;
-    console.log(`🔄 Executing activate command: ${command}`);
-
-    const { stdout, stderr } = await execAsync(command);
-    console.log(`✅ Activate command completed for devbench: ${devbenchData.name}`);
-    console.log('📄 Command output:', stdout);
-
-    // Update devbench status
-    await devbenchRef.update({
-      status: 'Active',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastActivated: admin.firestore.FieldValue.serverTimestamp(),
-      activateOutput: stdout
+// Status check endpoint
+app.get('/check-status/:id', requireAuth, (req, res) => {
+    const devbenchId = req.params.id;
+    
+    db.get('SELECT * FROM devbenches WHERE id = ? AND user_id = ?', 
+           [devbenchId, req.session.userId], (err, devbench) => {
+        if (err || !devbench || !devbench.actual_name) {
+            return res.json({ status: 'unknown' });
+        }
+        
+        const child = spawn('bash', [config.provision.scriptPath, 'status', devbench.actual_name]);
+        let output = '';
+        
+        child.stdout.on('data', (data) => {
+            output += data.toString();
+        });
+        
+        child.on('close', (code) => {
+            const status = output.trim() === 'active' ? 'active' : 'inactive';
+            
+            db.run('UPDATE devbenches SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', 
+                   [status, devbenchId]);
+            
+            res.json({ status });
+        });
     });
-
-    res.json({
-      success: true,
-      message: 'Devbench activated successfully',
-      output: stdout
-    });
-
-  } catch (error) {
-    console.error('❌ Error activating devbench:', error);
-    res.status(500).json({ 
-      error: 'Failed to activate devbench',
-      details: error.message 
-    });
-  }
 });
 
-/**
- * GET /api/devbenches/status/:devbenchId
- * Get the current status of a devbench by calling the provision script
- */
-app.get('/api/devbenches/status/:devbenchId', authenticateToken, async (req, res) => {
-  try {
-    const { devbenchId } = req.params;
-    const username = req.user.username;
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const devbenchRef = db.collection('artifacts').doc(appId)
-      .collection('users').doc(username)
-      .collection('devbenches').doc(devbenchId);
-
-    // Get devbench document
-    const devbenchDoc = await devbenchRef.get();
-    if (!devbenchDoc.exists) {
-      return res.status(404).json({ error: 'Devbench not found' });
-    }
-
-    const devbenchData = devbenchDoc.data();
-    const combinedName = devbenchData.combinedName || `${username}+${devbenchData.name}`;
-
-    // Execute status command
-    const command = `${PROVISION_SCRIPT_PATH} status ${combinedName}`;
-    console.log(`🔄 Executing status command: ${command}`);
-
-    const { stdout, stderr } = await execAsync(command);
-    console.log(`✅ Status command completed for devbench: ${devbenchData.name}`);
-    console.log('📄 Status output:', stdout);
-
-    // Parse status (should return "active" or "not active")
-    const statusOutput = stdout.trim().toLowerCase();
-    const isActive = statusOutput.includes('active') && !statusOutput.includes('not active');
-
-    // Update devbench with current status
-    await devbenchRef.update({
-      status: isActive ? 'Active' : 'Inactive',
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      lastStatusCheck: admin.firestore.FieldValue.serverTimestamp(),
-      statusOutput: stdout
+// Periodic status check (every minute)
+setInterval(() => {
+    db.all('SELECT * FROM devbenches WHERE actual_name IS NOT NULL', (err, devbenches) => {
+        if (err) return;
+        
+        devbenches.forEach(devbench => {
+            const child = spawn('bash', [config.provision.scriptPath, 'status', devbench.actual_name]);
+            let output = '';
+            
+            child.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+            
+            child.on('close', (code) => {
+                const status = output.trim() === 'active' ? 'active' : 'inactive';
+                
+                if (status !== devbench.status) {
+                    db.run('UPDATE devbenches SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', 
+                           [status, devbench.id]);
+                    
+                    // Notify user of status change
+                    broadcastToUser(devbench.user_id, {
+                        type: 'status_update',
+                        devbenchId: devbench.id,
+                        status
+                    });
+                }
+            });
+        });
     });
+}, config.provision.statusCheckInterval);
 
-    res.json({
-      devbenchId: devbenchId,
-      name: devbenchData.name,
-      combinedName: combinedName,
-      status: isActive ? 'Active' : 'Inactive',
-      isActive: isActive,
-      statusOutput: stdout,
-      lastChecked: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('❌ Error checking devbench status:', error);
-    res.status(500).json({ 
-      error: 'Failed to check devbench status',
-      details: error.message 
-    });
-  }
+const PORT = config.port;
+server.listen(PORT, () => {
+    console.log(`DevBench Manager running on port ${PORT}`);
 });
-
-// User Management API Endpoints (Admin only)
-
-/**
- * GET /api/admin/users
- * Get all users (admin only)
- */
-app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
-  try {
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const usersRef = db.collection('artifacts').doc(appId).collection('users');
-    const snapshot = await usersRef.orderBy('createdAt', 'desc').get();
-    
-    const users = [];
-    snapshot.forEach(doc => {
-      users.push({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || new Date()
-      });
-    });
-
-    res.json(users);
-    console.log(`✅ Admin fetched ${users.length} users`);
-
-  } catch (error) {
-    console.error('❌ Error fetching users:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-/**
- * POST /api/admin/users
- * Create a new user (admin only)
- */
-app.post('/api/admin/users', authenticateAdmin, async (req, res) => {
-  try {
-    const { username, email, fullName } = req.body;
-
-    // Validation
-    if (!username || typeof username !== 'string' || username.trim().length === 0) {
-      return res.status(400).json({ error: 'Username is required and must be a non-empty string' });
-    }
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const trimmedUsername = username.trim();
-    const appId = process.env.APP_ID || 'devbench-app';
-    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(trimmedUsername);
-    
-    // Check if user already exists
-    const existingUser = await userRef.get();
-    if (existingUser.exists) {
-      return res.status(409).json({ error: 'User already exists' });
-    }
-
-    // Create new user
-    const userData = {
-      username: trimmedUsername,
-      email: email || '',
-      fullName: fullName || '',
-      disabled: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      createdBy: req.user.username
-    };
-
-    await userRef.set(userData);
-
-    res.status(201).json({
-      id: trimmedUsername,
-      ...userData,
-      createdAt: new Date()
-    });
-    
-    console.log(`✅ Admin created new user: ${trimmedUsername}`);
-
-  } catch (error) {
-    console.error('❌ Error creating user:', error);
-    res.status(500).json({ error: 'Failed to create user' });
-  }
-});
-
-/**
- * PUT /api/admin/users/:username
- * Update user (admin only)
- */
-app.put('/api/admin/users/:username', authenticateAdmin, async (req, res) => {
-  try {
-    const { username } = req.params;
-    const { email, fullName, disabled } = req.body;
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
-    
-    // Check if user exists
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Update user data
-    const updateData = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedBy: req.user.username
-    };
-
-    if (email !== undefined) updateData.email = email;
-    if (fullName !== undefined) updateData.fullName = fullName;
-    if (disabled !== undefined) updateData.disabled = disabled;
-
-    await userRef.update(updateData);
-
-    const updatedUser = await userRef.get();
-    res.json({
-      id: username,
-      ...updatedUser.data(),
-      updatedAt: new Date()
-    });
-    
-    console.log(`✅ Admin updated user: ${username}`);
-
-  } catch (error) {
-    console.error('❌ Error updating user:', error);
-    res.status(500).json({ error: 'Failed to update user' });
-  }
-});
-
-/**
- * DELETE /api/admin/users/:username
- * Delete user (admin only)
- */
-app.delete('/api/admin/users/:username', authenticateAdmin, async (req, res) => {
-  try {
-    const { username } = req.params;
-
-    if (!db) {
-      return res.status(500).json({ error: 'Database connection not available' });
-    }
-
-    const appId = process.env.APP_ID || 'devbench-app';
-    const userRef = db.collection('artifacts').doc(appId).collection('users').doc(username);
-    
-    // Check if user exists
-    const userDoc = await userRef.get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Delete user and all their devbenches
-    const devbenchesRef = userRef.collection('devbenches');
-    const devbenchesSnapshot = await devbenchesRef.get();
-    
-    // Delete all devbenches in a batch
-    const batch = db.batch();
-    devbenchesSnapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    // Delete user document
-    batch.delete(userRef);
-    
-    await batch.commit();
-
-    res.json({ message: 'User and all associated data deleted successfully' });
-    console.log(`✅ Admin deleted user: ${username}`);
-
-  } catch (error) {
-    console.error('❌ Error deleting user:', error);
-    res.status(500).json({ error: 'Failed to delete user' });
-  }
-});
-
-// Catch-all handler: send back React's index.html file for client-side routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'frontend/build/index.html'));
-});
-
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error('❌ Unhandled error:', error);
-  res.status(500).json({ error: 'Internal server error' });
-});
-
-// Start server
-app.listen(PORT, () => {
-  console.log(`🚀 Devbench Manager server running on port ${PORT}`);
-  console.log(`🌐 Access the application at: http://localhost:${PORT}`);
-  console.log(`📊 API endpoints available at: http://localhost:${PORT}/api/*`);
-});
-
-module.exports = app;

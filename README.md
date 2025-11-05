@@ -1,236 +1,195 @@
-# Devbench Manager
+# DevBench Manager
 
-A comprehensive full-stack web application for managing remote virtual machines (devbenches). This application provides a modern React frontend with real-time updates and a robust Node.js backend that integrates with Google Cloud Firestore and SSH for VM provisioning.
+A web application for managing DevBench virtual machines with user authentication and real-time monitoring.
 
 ## Features
 
-- **User Authentication**: Simple JWT-based authentication system
-- **Real-time Updates**: Live status updates using Firestore onSnapshot
-- **VM Management**: Create and monitor virtual machines on remote servers
-- **SSH Integration**: Automated VM provisioning via SSH commands
-- **Responsive Design**: Modern UI built with React and Tailwind CSS
-- **Error Handling**: Comprehensive error handling with user-friendly messages
+### Admin Features
+- Add users with username, email, and initial password
+- Create and delete DevBenches
+- Delete users and reset passwords
+- View all users and their DevBenches
+- Dashboard showing all DevBenches with status
 
-## Technology Stack
+### User Features
+- Login with username and password
+- Create personal DevBenches
+- View all personal DevBenches with status
+- Activate and delete DevBenches
+- Real-time log output during DevBench creation
+- Connection information (SSH, VNC) display
 
-### Frontend
-- **React 18** with functional components and hooks
-- **Tailwind CSS** for styling and responsive design
-- **React Router** for client-side routing
-- **Axios** for HTTP requests
-- **Firebase SDK** for real-time database updates
+### Technical Features
+- Real-time status monitoring (checks every minute)
+- WebSocket integration for live updates
+- Secure password hashing
+- SQLite database for data persistence
+- Bootstrap UI with responsive design
 
-### Backend
-- **Node.js** with Express.js framework
-- **JWT** for authentication
-- **Firebase Admin SDK** for Firestore integration
-- **ssh2-promise** for SSH connections
-- **CORS** and security middleware
-
-### Database
-- **Google Cloud Firestore** for data persistence
-- Real-time synchronization across clients
-
-## Project Structure
-
-```
-devbench/
-├── frontend/                 # React frontend application
-│   ├── public/              # Static assets
-│   ├── src/
-│   │   ├── components/      # React components
-│   │   │   ├── Login.js
-│   │   │   ├── Dashboard.js
-│   │   │   ├── DevbenchCard.js
-│   │   │   ├── CreateDevbenchForm.js
-│   │   │   └── Notification.js
-│   │   ├── App.js           # Main app component
-│   │   ├── index.js         # Entry point
-│   │   └── index.css        # Tailwind CSS styles
-│   ├── package.json
-│   └── tailwind.config.js
-├── server.js                # Express server
-├── package.json             # Backend dependencies
-├── .env.example             # Environment variables template
-└── README.md               # This file
-```
-
-## Installation and Setup
+## Installation
 
 ### Prerequisites
-- Node.js (v16 or higher)
-- npm or yarn
-- Google Cloud Firestore project
-- SSH access to Ubuntu server for VM provisioning
+- Node.js 18+
+- Docker and Docker Compose (recommended)
+- SSH access to the VM host server
 
-### 1. Install Dependencies
+### Quick Start with Docker
 
+1. Clone the repository and navigate to the project directory
+
+2. Make sure your `provision_vm.sh` script is in the project root
+
+3. Build and run with Docker Compose:
 ```bash
-# Install backend dependencies
+docker-compose up -d
+```
+
+4. Access the application at `http://localhost:3001`
+
+### Manual Installation
+
+1. Install dependencies:
+```bash
 npm install
-
-# Install frontend dependencies
-cd frontend
-npm install
-cd ..
 ```
 
-### 2. Environment Configuration
-
-1. Copy `.env.example` to `.env`:
+2. Start the application:
 ```bash
-cp .env.example .env
+npm start
 ```
 
-2. Configure your environment variables in `.env`:
-```env
-PORT=3001
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-FIREBASE_CONFIG={"type":"service_account","project_id":"your-project",...}
-APP_ID=your-app-id
-```
-
-### 3. Firebase Setup
-
-Configure Firebase by setting the global variables in your environment or in the HTML template:
-
-```javascript
-window.__firebase_config = {
-  // Your Firebase configuration object
-};
-window.__app_id = "your-app-id";
-```
-
-### 4. SSH Configuration
-
-The application is configured to connect to:
-- **Host**: asf-tb.duckdns.org
-- **Username**: asf
-- **Password**: ASF
-- **Script**: ./provision_vm.sh
-
-Ensure the provision script is available on the remote server and executable.
-
-## Development
-
-### Start Development Server
-
+For development with auto-reload:
 ```bash
-# Start backend server (runs on port 3001)
 npm run dev
-
-# In another terminal, start frontend development server
-cd frontend
-npm start
 ```
 
-The frontend will be available at `http://localhost:3000` and will proxy API requests to the backend at `http://localhost:3001`.
+## Configuration
 
-### Build for Production
-
-```bash
-# Build frontend for production
-npm run build
-
-# Start production server
-npm start
+### Caddy Proxy Configuration
+Add this to your Caddyfile:
 ```
+tbm.nabd-co.com {
+    reverse_proxy devbench-manager:3001
+}
+```
+
+### Default Admin Account
+- Username: `admin`
+- Password: `admin123`
+- Email: `admin@nabd-co.com`
+
+**Important:** Change the default admin password after first login!
+
+## Usage
+
+### For Administrators
+1. Login with admin credentials
+2. Add users through the "Add User" button
+3. Monitor all DevBenches from the admin dashboard
+4. Manage users (reset passwords, delete users)
+
+### For Users
+1. Login with provided credentials
+2. Create DevBenches using the "Create DevBench" button
+3. Monitor DevBench status and connection information
+4. Activate or delete DevBenches as needed
+
+### DevBench Naming Rules
+- DevBench names can only contain letters, numbers, hyphens (-), and underscores (_)
+- Final DevBench name format: `username_devbenchname`
+- Example: User "john" creates "test-db" → Final name: "john_test-db"
 
 ## API Endpoints
 
 ### Authentication
-- `POST /api/login` - User login with username
-  - Body: `{ username: string }`
-  - Response: `{ token: string }`
+- `GET /login` - Login page
+- `POST /login` - Login submission
+- `GET /logout` - Logout
 
-### Devbenches
-- `GET /api/devbenches` - Get user's devbenches (requires auth)
-  - Headers: `Authorization: Bearer <token>`
-  - Response: Array of devbench objects
+### Admin Routes
+- `GET /admin` - Admin dashboard
+- `POST /admin/add-user` - Add new user
+- `POST /admin/delete-user/:id` - Delete user
+- `POST /admin/reset-password/:id` - Reset user password
 
-- `POST /api/devbenches/create` - Create new devbench (requires auth)
-  - Headers: `Authorization: Bearer <token>`
-  - Body: `{ devbenchName: string }`
-  - Response: Created devbench object
+### User Routes
+- `GET /dashboard` - User dashboard
+- `POST /create-devbench` - Create new DevBench
+- `POST /delete-devbench/:id` - Delete DevBench
+- `POST /activate-devbench/:id` - Activate DevBench
+- `GET /check-status/:id` - Check DevBench status
 
 ## Database Schema
 
-### Firestore Structure
-```
-artifacts/{appId}/
-└── users/{username}/
-    └── devbenches/{devbenchId}
-        ├── name: string
-        ├── status: "Creating" | "Active" | "Error"
-        ├── userId: string
-        ├── createdAt: timestamp
-        ├── details: object
-        └── completedAt?: timestamp
-```
+### Users Table
+- `id` - Primary key
+- `username` - Unique username
+- `email` - User email
+- `password` - Hashed password
+- `is_admin` - Admin flag
+- `created_at` - Creation timestamp
 
-## Security Considerations
+### DevBenches Table
+- `id` - Primary key
+- `user_id` - Foreign key to users
+- `name` - DevBench name (user input)
+- `actual_name` - Actual VM name from script
+- `status` - Current status (active/inactive/creating)
+- `ssh_info` - SSH connection string
+- `vnc_info` - VNC connection string
+- `vm_ip` - VM IP address
+- `created_at` - Creation timestamp
+- `updated_at` - Last update timestamp
 
-- JWT tokens expire after 24 hours
-- SSH credentials should be secured in production
-- Input validation on both client and server
-- CORS configured for security
-- Helmet middleware for additional security headers
+## Security Features
 
-## Deployment
+- Password hashing with bcryptjs
+- Session-based authentication
+- Input validation and sanitization
+- Admin-only routes protection
+- SQL injection prevention with parameterized queries
 
-### Production Deployment
-1. Set up environment variables on your server
-2. Configure Firebase credentials
-3. Build the frontend: `npm run build`
-4. Start the server: `npm start`
-5. Configure reverse proxy (nginx) for SSL termination
+## Monitoring
 
-### Environment Variables for Production
-- Set a strong `JWT_SECRET`
-- Configure proper `FIREBASE_CONFIG`
-- Set appropriate `PORT` if needed
-- Consider using environment-specific configurations
+- Automatic status checking every minute
+- Real-time WebSocket updates
+- Live log streaming during DevBench creation
+- Connection information extraction and display
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **Firebase Connection Issues**
-   - Ensure `__firebase_config` and `__app_id` are properly set
-   - Check Firebase project permissions
-   - Verify service account credentials
-
-2. **SSH Connection Failures**
-   - Verify SSH host accessibility
-   - Check credentials and permissions
-   - Ensure provision script exists and is executable
-
-3. **Real-time Updates Not Working**
-   - Check Firebase configuration
-   - Verify Firestore rules allow read/write
-   - Check browser console for errors
+1. **Script timeout**: DevBench creation takes up to 30 minutes
+2. **SSH connection issues**: Ensure sshpass is installed and SSH credentials are correct
+3. **Permission issues**: Make sure the provision script is executable
+4. **Database issues**: Check SQLite file permissions
 
 ### Logs
-- Backend logs are output to console
-- Check browser developer tools for frontend errors
-- Monitor Firestore usage in Firebase console
+Application logs are available in the container or local environment where the app is running.
 
-## Contributing
+## Development
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+### Project Structure
+```
+├── server.js              # Main application server
+├── package.json           # Dependencies and scripts
+├── views/                 # EJS templates
+│   ├── layout.ejs        # Base layout
+│   ├── login.ejs         # Login page
+│   ├── admin.ejs         # Admin dashboard
+│   └── dashboard.ejs     # User dashboard
+├── provision_vm.sh        # VM provisioning script
+├── Dockerfile            # Docker configuration
+├── docker-compose.yml    # Docker Compose configuration
+└── README.md             # This file
+```
+
+### Adding Features
+1. Add routes in `server.js`
+2. Create corresponding EJS templates in `views/`
+3. Update database schema if needed
+4. Add client-side JavaScript for interactivity
 
 ## License
-
-This project is licensed under the MIT License.
-
-## Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review logs for error details
-3. Ensure all dependencies are properly installed
-4. Verify environment configuration
+MIT License
