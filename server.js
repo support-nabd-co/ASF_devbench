@@ -83,21 +83,45 @@ const requireAdmin = (req, res, next) => {
 const clients = new Map();
 
 wss.on('connection', (ws, req) => {
-    const userId = req.session?.userId;
-    if (userId) {
-        clients.set(userId, ws);
-        
-        ws.on('close', () => {
-            clients.delete(userId);
-        });
-    }
+    console.log('WebSocket connection established');
+    
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+            if (data.type === 'register' && data.userId) {
+                clients.set(data.userId, ws);
+                console.log(`User ${data.userId} registered for WebSocket updates`);
+            }
+        } catch (error) {
+            console.error('WebSocket message error:', error);
+        }
+    });
+    
+    ws.on('close', () => {
+        // Remove this connection from all users
+        for (const [userId, client] of clients.entries()) {
+            if (client === ws) {
+                clients.delete(userId);
+                console.log(`User ${userId} WebSocket disconnected`);
+                break;
+            }
+        }
+    });
 });
 
 // Broadcast to specific user
 const broadcastToUser = (userId, message) => {
     const client = clients.get(userId);
     if (client && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(message));
+        try {
+            client.send(JSON.stringify(message));
+            console.log(`Sent message to user ${userId}:`, message.type);
+        } catch (error) {
+            console.error(`Error sending message to user ${userId}:`, error);
+            clients.delete(userId);
+        }
+    } else {
+        console.log(`No active WebSocket for user ${userId}`);
     }
 };
 
@@ -107,6 +131,15 @@ app.get('/health', (req, res) => {
         status: 'ok', 
         timestamp: new Date().toISOString(),
         version: '1.0.0'
+    });
+});
+
+// User info endpoint for WebSocket registration
+app.get('/api/user-info', requireAuth, (req, res) => {
+    res.json({
+        userId: req.session.userId,
+        username: req.session.username,
+        isAdmin: req.session.isAdmin
     });
 });
 
@@ -282,13 +315,17 @@ app.post('/create-devbench', requireAuth, (req, res) => {
         db.run('INSERT INTO devbenches (user_id, name, status) VALUES (?, ?, ?)', 
                [req.session.userId, name, 'creating'], function(err) {
             if (err) {
+                console.error('Database error:', err);
                 return res.status(500).json({ error: 'Database error' });
             }
             
             const devbenchId = this.lastID;
+            console.log(`Created devbench record with ID: ${devbenchId}, full name: ${fullName}`);
             
             // Start the provision script
-            executeProvisionScript('create', fullName, req.session.userId, devbenchId);
+            setTimeout(() => {
+                executeProvisionScript('create', fullName, req.session.userId, devbenchId);
+            }, 1000); // Small delay to ensure WebSocket is ready
             
             res.json({ success: true, devbenchId });
         });
@@ -336,14 +373,42 @@ app.post('/activate-devbench/:id', requireAuth, (req, res) => {
 
 // Function to execute provision script
 function executeProvisionScript(command, vmName, userId, devbenchId) {
-    const scriptPath = config.provision.scriptPath;
-    const child = spawn('bash', [scriptPath, command, vmName]);
+    console.log(`Executing provision script: ${command} ${vmName} for user ${userId}`);
     
+    const scriptPath = config.provision.scriptPath;
     let output = '';
+    
+    // Check if script exists
+    const fs = require('fs');
+    if (!fs.existsSync(scriptPath)) {
+        console.error(`Script not found: ${scriptPath}`);
+        broadcastToUser(userId, {
+            type: 'script_output',
+            devbenchId,
+            data: `Error: Script not found at ${scriptPath}\n`
+        });
+        
+        // Update database to reflect error
+        db.run('UPDATE devbenches SET status = ? WHERE id = ?', ['error', devbenchId]);
+        return;
+    }
+    
+    // Send initial message
+    broadcastToUser(userId, {
+        type: 'script_output',
+        devbenchId,
+        data: `Starting ${command} operation for ${vmName}...\n`
+    });
+    
+    const child = spawn('bash', [scriptPath, command, vmName], {
+        cwd: process.cwd(),
+        env: process.env
+    });
     
     child.stdout.on('data', (data) => {
         const chunk = data.toString();
         output += chunk;
+        console.log(`Script output: ${chunk.trim()}`);
         
         // Broadcast real-time output to user
         broadcastToUser(userId, {
@@ -356,33 +421,63 @@ function executeProvisionScript(command, vmName, userId, devbenchId) {
     child.stderr.on('data', (data) => {
         const chunk = data.toString();
         output += chunk;
+        console.log(`Script error: ${chunk.trim()}`);
         
         broadcastToUser(userId, {
             type: 'script_output',
             devbenchId,
-            data: chunk
+            data: `ERROR: ${chunk}`
         });
     });
     
+    child.on('error', (error) => {
+        console.error(`Script execution error:`, error);
+        broadcastToUser(userId, {
+            type: 'script_output',
+            devbenchId,
+            data: `Execution Error: ${error.message}\n`
+        });
+        
+        db.run('UPDATE devbenches SET status = ? WHERE id = ?', ['error', devbenchId]);
+    });
+    
     child.on('close', (code) => {
-        if (command === 'create' && code === 0) {
-            // Parse the output to extract actual VM name and connection info
-            const actualNameMatch = output.match(/✅ VM '([^']+)' started with IP:/);
-            const ipMatch = output.match(/VM IP: (\d+\.\d+\.\d+\.\d+)/);
-            const sshMatch = output.match(/SSH: (.+)/);
-            const vncMatch = output.match(/VNC: (.+)/);
-            
-            if (actualNameMatch) {
-                const actualName = actualNameMatch[1];
-                const vmIp = ipMatch ? ipMatch[1] : null;
-                const sshInfo = sshMatch ? sshMatch[1] : null;
-                const vncInfo = vncMatch ? vncMatch[1] : null;
+        console.log(`Script finished with exit code: ${code}`);
+        
+        if (command === 'create') {
+            if (code === 0) {
+                // Parse the output to extract actual VM name and connection info
+                const actualNameMatch = output.match(/✅ VM '([^']+)' started with IP:/);
+                const ipMatch = output.match(/VM IP: (\d+\.\d+\.\d+\.\d+)/);
+                const sshMatch = output.match(/SSH: (.+)/);
+                const vncMatch = output.match(/VNC: (.+)/);
                 
-                db.run(`UPDATE devbenches SET 
-                        actual_name = ?, status = 'active', vm_ip = ?, 
-                        ssh_info = ?, vnc_info = ?, updated_at = CURRENT_TIMESTAMP 
-                        WHERE id = ?`, 
-                       [actualName, vmIp, sshInfo, vncInfo, devbenchId]);
+                if (actualNameMatch) {
+                    const actualName = actualNameMatch[1];
+                    const vmIp = ipMatch ? ipMatch[1] : null;
+                    const sshInfo = sshMatch ? sshMatch[1] : null;
+                    const vncInfo = vncMatch ? vncMatch[1] : null;
+                    
+                    console.log(`Updating database: ${actualName}, IP: ${vmIp}`);
+                    
+                    db.run(`UPDATE devbenches SET 
+                            actual_name = ?, status = 'active', vm_ip = ?, 
+                            ssh_info = ?, vnc_info = ?, updated_at = CURRENT_TIMESTAMP 
+                            WHERE id = ?`, 
+                           [actualName, vmIp, sshInfo, vncInfo, devbenchId], (err) => {
+                        if (err) {
+                            console.error('Database update error:', err);
+                        } else {
+                            console.log('Database updated successfully');
+                        }
+                    });
+                } else {
+                    console.log('Could not parse VM name from output');
+                    db.run('UPDATE devbenches SET status = ? WHERE id = ?', ['error', devbenchId]);
+                }
+            } else {
+                console.log('Script failed, updating status to error');
+                db.run('UPDATE devbenches SET status = ? WHERE id = ?', ['error', devbenchId]);
             }
         }
         
@@ -457,4 +552,14 @@ setInterval(() => {
 const PORT = config.port;
 server.listen(PORT, () => {
     console.log(`DevBench Manager running on port ${PORT}`);
+    console.log(`Database path: ${config.database.path}`);
+    console.log(`Provision script path: ${config.provision.scriptPath}`);
+    
+    // Check if provision script exists
+    const fs = require('fs');
+    if (fs.existsSync(config.provision.scriptPath)) {
+        console.log('✓ Provision script found');
+    } else {
+        console.log('✗ Provision script NOT found');
+    }
 });

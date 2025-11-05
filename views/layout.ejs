@@ -72,9 +72,38 @@
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}`);
         
+        ws.onopen = function() {
+            console.log('WebSocket connected');
+            // Register this connection with user ID if available
+            <% if (typeof username !== 'undefined') { %>
+                // Get user ID from session (we'll need to pass this from server)
+                fetch('/api/user-info')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.userId) {
+                            ws.send(JSON.stringify({
+                                type: 'register',
+                                userId: data.userId
+                            }));
+                            console.log('Registered WebSocket for user:', data.userId);
+                        }
+                    })
+                    .catch(error => console.error('Error getting user info:', error));
+            <% } %>
+        };
+        
         ws.onmessage = function(event) {
             const message = JSON.parse(event.data);
+            console.log('WebSocket message received:', message);
             handleWebSocketMessage(message);
+        };
+        
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+        
+        ws.onclose = function() {
+            console.log('WebSocket disconnected');
         };
         
         function handleWebSocketMessage(message) {
@@ -85,9 +114,10 @@
                     logElement.scrollTop = logElement.scrollHeight;
                 }
             } else if (message.type === 'script_complete') {
+                console.log('Script completed with exit code:', message.exitCode);
                 setTimeout(() => {
                     location.reload();
-                }, 2000);
+                }, 3000);
             } else if (message.type === 'status_update') {
                 const statusElement = document.getElementById(`status-${message.devbenchId}`);
                 if (statusElement) {
