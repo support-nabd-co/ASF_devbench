@@ -1,79 +1,115 @@
-# DevBench Manager
+# DevBench Manager 🚀
 
-A web application for managing DevBench virtual machines with user authentication and real-time monitoring.
+A modern web application for managing DevBench virtual machines with user authentication, real-time monitoring, and dark theme support.
 
-## Features
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
+![Docker](https://img.shields.io/badge/docker-required-blue.svg)
 
-### Admin Features
-- Add users with username, email, and initial password
-- Create and delete DevBenches
-- Delete users and reset passwords
-- View all users and their DevBenches
-- Dashboard showing all DevBenches with status
+## 📋 Table of Contents
 
-### User Features
-- Login with username and password
-- Create personal DevBenches
-- View all personal DevBenches with status
-- Activate and delete DevBenches
-- Real-time log output during DevBench creation
-- Connection information (SSH Port, VNC Port) display
-- Help page with SSH configuration tool guide
-- Download SSH Config Manager tool
+- [Overview](#overview)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Documentation](#documentation)
+- [Project Structure](#project-structure)
+- [Configuration](#configuration)
+- [Usage](#usage)
+- [API](#api)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
 
-### Technical Features
-- Real-time status monitoring (checks every minute)
-- WebSocket integration for live updates
-- Secure password hashing
-- SQLite database for data persistence
-- Bootstrap UI with responsive design
+## 🎯 Overview
 
-## Installation
+DevBench Manager provides a centralized web interface for creating, managing, and accessing virtual machine development environments. Built with Node.js and Express, it offers real-time monitoring, WebSocket-based updates, and a modern responsive UI with dark theme support.
+
+## ✨ Features
+
+### 👤 User Features
+- 🔐 Secure authentication with session management
+- 🖥️ Create and manage personal DevBenches
+- 📊 Real-time status monitoring
+- 📝 Live log streaming during VM creation
+- 🔌 Easy access to SSH and VNC connection info
+- 📚 Comprehensive help page with setup guide
+- 📥 Download SSH Config Manager tool
+- 🌓 Dark/Light theme toggle
+- 📱 Responsive design for mobile and desktop
+
+### 👨‍💼 Admin Features
+- 👥 User management (add, delete, reset passwords)
+- 🗂️ View all users and their DevBenches
+- 📈 System-wide DevBench overview
+- 🔧 Centralized management dashboard
+- 📊 User activity monitoring
+
+### 🛠️ Technical Features
+- ⚡ Real-time WebSocket updates
+- 🔒 Secure password hashing (bcrypt)
+- 💾 SQLite database for persistence
+- 🐳 Docker containerization
+- 🔄 Automatic status checks (60-second interval)
+- 🎨 Modern Bootstrap 5 UI
+- 🌐 Caddy reverse proxy support
+- 📡 SSH-based VM provisioning
+- 🔍 Health check endpoint
+- 📋 Comprehensive logging
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- Node.js 18+
-- Docker and Docker Compose (recommended)
-- SSH access to the VM host server
 
-### Quick Start with Docker
+- **Docker**: Version 20.10+ ([Install Docker](https://docs.docker.com/get-docker/))
+- **Docker Compose**: Version 2.0+ ([Install Compose](https://docs.docker.com/compose/install/))
+- **Git**: For cloning the repository
+- **SSH Access**: To VM host (asf-server.duckdns.org:49152)
 
-1. Clone the repository and navigate to the project directory
+### One-Command Deployment
 
-2. Make sure your `provision_vm.sh` script is in the project root
-
-3. Deploy using the deployment script:
 ```bash
+# Clone the repository
+git clone <repository-url>
+cd ASF_devbench
+
+# Deploy
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-Or manually with Docker Compose:
-```bash
-# Create network if needed
-docker network create caddy_network
+That's it! 🎉
 
-# Build and run
-docker-compose up -d --build
+### Access the Application
+
+- **Direct Access**: http://localhost:9090
+- **Via Caddy Proxy**: https://tbm.nabd-co.com
+
+### Default Credentials
+
+```
+Username: admin
+Password: admin123
 ```
 
-4. Access the application at `https://tbm.nabd-co.com` (via Caddy proxy)
+⚠️ **Important**: Change the default password after first login!
 
-### Manual Installation
+### Alternative: Manual Installation
 
-1. Install dependencies:
+For development without Docker:
+
 ```bash
+# Install dependencies
 npm install
-```
 
-2. Start the application:
-```bash
+# Start application
 npm start
-```
 
-For development with auto-reload:
-```bash
+# Or with auto-reload
 npm run dev
 ```
+
+Access at: http://localhost:3001
 
 ## Configuration
 
@@ -207,33 +243,214 @@ Access the help page at `/help` for detailed instructions on using the SSH Confi
 ### Logs
 Application logs are available in the container or local environment where the app is running.
 
-## Development
+## 📚 Documentation
 
-### Project Structure
+Comprehensive documentation is available in the `/docs` directory:
+
+- **[Architecture](docs/ARCHITECTURE.md)**: System architecture, components, and data flow
+- **[Structure](docs/STRUCTURE.md)**: Project structure and file descriptions
+- **[Deployment](docs/DEPLOYMENT.md)**: Detailed deployment guide and troubleshooting
+- **[API](docs/API.md)**: Complete API reference and examples
+
+## 📁 Project Structure
+
 ```
-├── server.js              # Main application server
-├── package.json           # Dependencies and scripts
-├── views/                 # EJS templates
-│   ├── layout.ejs        # Base layout
-│   ├── login.ejs         # Login page
-│   ├── admin.ejs         # Admin dashboard
-│   ├── dashboard.ejs     # User dashboard
-│   └── help.ejs          # Help page
-├── public/                # Static assets
-│   ├── css/              # Stylesheets
-│   ├── images/           # Images and icons
-│   └── downloads/        # Downloadable files (SSH Config Manager)
-├── provision_vm.sh        # VM provisioning script
-├── Dockerfile            # Docker configuration
-├── docker-compose.yml    # Docker Compose configuration
-└── README.md             # This file
+ASF_devbench/
+├── docs/                   # Documentation
+│   ├── ARCHITECTURE.md    # System architecture
+│   ├── STRUCTURE.md       # Project structure
+│   ├── DEPLOYMENT.md      # Deployment guide
+│   └── API.md             # API documentation
+├── public/                 # Static assets
+│   ├── css/               # Stylesheets (with dark theme)
+│   ├── images/            # Logos and icons
+│   └── downloads/         # SSH Config Manager tool
+├── views/                  # EJS templates
+│   ├── layout.ejs         # Base layout
+│   ├── login.ejs          # Login page
+│   ├── dashboard.ejs      # User dashboard
+│   ├── admin.ejs          # Admin panel
+│   └── help.ejs           # Help page
+├── data/                   # Database (created on deploy)
+├── logs/                   # Application logs
+├── server.js               # Main application
+├── config.js               # Configuration
+├── provision_vm.sh         # VM provisioning script
+├── deploy.sh               # Deployment script
+├── docker-compose.yml      # Container orchestration
+├── Dockerfile              # Container definition
+└── README.md               # This file
 ```
 
-### Adding Features
-1. Add routes in `server.js`
-2. Create corresponding EJS templates in `views/`
-3. Update database schema if needed
-4. Add client-side JavaScript for interactivity
+## 🎨 Theme Support
 
-## License
-MIT License
+DevBench Manager includes a beautiful dark theme:
+
+- **Toggle**: Click the theme button (bottom-right corner)
+- **Persistence**: Theme preference saved in browser
+- **Smooth Transitions**: Animated theme switching
+- **Full Coverage**: All pages and components themed
+
+## 🔧 Configuration
+
+### Environment Variables
+
+Create a `.env` file:
+
+```bash
+NODE_ENV=production
+PORT=3001
+SECRET_KEY=your-secure-secret-key
+ADMIN_EMAIL=admin@yourdomain.com
+ADMIN_PASSWORD=your-secure-password
+```
+
+### Docker Configuration
+
+Edit `docker-compose.yml` to customize:
+
+```yaml
+ports:
+  - "9090:3001"  # Change external port
+environment:
+  - NODE_ENV=production
+  - SECRET_KEY=${SECRET_KEY}
+volumes:
+  - ./data:/app/data
+  - ./logs:/app/logs
+```
+
+### Caddy Reverse Proxy
+
+Add to your Caddyfile:
+
+```
+tbm.nabd-co.com {
+    reverse_proxy devbench-manager:3001
+}
+```
+
+## 📖 Usage
+
+### For Users
+
+1. **Login**: Use provided credentials
+2. **Create DevBench**: Click "Create DevBench" button
+3. **Monitor Progress**: Watch real-time log output
+4. **Access VM**: Use displayed SSH/VNC ports
+5. **Get Help**: Click help icon for setup guide
+
+### For Administrators
+
+1. **Add Users**: Click "Add User" in admin panel
+2. **Manage DevBenches**: View and delete any DevBench
+3. **Reset Passwords**: Reset user passwords as needed
+4. **Monitor System**: View all users and their activity
+
+### SSH Configuration
+
+Download the SSH Config Manager tool from the help page to easily configure SSH access to your VMs.
+
+## 🔌 API
+
+### Health Check
+
+```bash
+curl http://localhost:9090/health
+```
+
+### Create DevBench
+
+```bash
+curl -X POST http://localhost:9090/create-devbench \
+  -H "Content-Type: application/json" \
+  -d '{"name":"my-vm"}'
+```
+
+See [API Documentation](docs/API.md) for complete reference.
+
+## 🐛 Troubleshooting
+
+### Container Won't Start
+
+```bash
+# Check logs
+docker-compose logs
+
+# Verify port availability
+sudo lsof -i :9090
+
+# Check permissions
+sudo chown -R $USER:$USER data logs
+```
+
+### Cannot Access Web Interface
+
+```bash
+# Verify container is running
+docker ps | grep devbench-manager
+
+# Test health endpoint
+curl http://localhost:9090/health
+
+# Check firewall
+sudo ufw allow 9090/tcp
+```
+
+### SSH Connection Fails
+
+```bash
+# Test SSH manually
+ssh -p 49152 asf@asf-server.duckdns.org
+
+# Check from container
+docker exec devbench-manager ./provision_vm.sh status test_vm
+```
+
+See [Deployment Guide](docs/DEPLOYMENT.md) for more troubleshooting steps.
+
+## 🔄 Updating
+
+```bash
+# Pull latest changes
+git pull origin main
+
+# Backup database
+cp data/devbench.db data/devbench.db.backup
+
+# Redeploy
+./deploy.sh
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
+
+## 📝 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Built with [Express.js](https://expressjs.com/)
+- UI powered by [Bootstrap 5](https://getbootstrap.com/)
+- Icons from [Font Awesome](https://fontawesome.com/)
+- Reverse proxy by [Caddy](https://caddyserver.com/)
+
+## 📞 Support
+
+For issues, questions, or contributions:
+
+- 📧 Email: admin@nabd-co.com
+- 📚 Documentation: `/docs` directory
+- 🐛 Issues: GitHub Issues (if applicable)
+
+---
+
+Made with ❤️ by NABD Solutions
