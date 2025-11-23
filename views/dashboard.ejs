@@ -19,28 +19,32 @@
                 <div class="card-body">
                     ${db.actual_name ? `
                         <p><strong>VM Name:</strong> ${db.actual_name}</p>
-                        ${db.vm_ip ? `<p><strong>IP:</strong> ${db.vm_ip}</p>` : ''}
                         
                         ${db.ssh_info || db.vnc_info ? `
                             <div class="connection-info">
                                 <h6><i class="fas fa-plug"></i> Connection Info:</h6>
                                 ${db.ssh_info ? `
                                     <div class="mb-3">
-                                        <strong><i class="fas fa-terminal"></i> SSH:</strong><br>
-                                        <code>${db.ssh_info}</code>
+                                        <strong><i class="fas fa-terminal"></i> SSH Port:</strong><br>
+                                        <code class="fs-5">${db.ssh_info}</code>
                                         <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyToClipboard('${db.ssh_info}')">
                                             <i class="fas fa-copy"></i>
                                         </button>
-                                        <br><small class="text-muted mt-1"><i class="fas fa-key"></i> <strong>Password:</strong> ASF</small>
                                     </div>
                                 ` : ''}
                                 ${db.vnc_info ? `
                                     <div class="mb-3">
-                                        <strong><i class="fas fa-desktop"></i> VNC:</strong><br>
-                                        <code>${db.vnc_info}</code>
-                                        <br><small class="text-muted mt-1"><i class="fas fa-key"></i> <strong>Password:</strong> ASF</small>
+                                        <strong><i class="fas fa-desktop"></i> VNC Port:</strong><br>
+                                        <code class="fs-5">${db.vnc_info}</code>
+                                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="copyToClipboard('${db.vnc_info}')">
+                                            <i class="fas fa-copy"></i>
+                                        </button>
                                     </div>
                                 ` : ''}
+                                <div class="alert alert-info mt-3">
+                                    <i class="fas fa-info-circle"></i> Need help connecting? 
+                                    <a href="/help" class="alert-link">View setup guide</a>
+                                </div>
                             </div>
                         ` : ''}
                     ` : `

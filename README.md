@@ -17,7 +17,9 @@ A web application for managing DevBench virtual machines with user authenticatio
 - View all personal DevBenches with status
 - Activate and delete DevBenches
 - Real-time log output during DevBench creation
-- Connection information (SSH, VNC) display
+- Connection information (SSH Port, VNC Port) display
+- Help page with SSH configuration tool guide
+- Download SSH Config Manager tool
 
 ### Technical Features
 - Real-time status monitoring (checks every minute)
@@ -114,6 +116,15 @@ docker network create caddy_network
 - Final DevBench name format: `username_devbenchname`
 - Example: User "john" creates "test-db" → Final name: "john_test-db"
 
+### SSH Configuration
+The application includes a downloadable SSH Config Manager tool (`db_vm_ssh_config_manager.exe`) that helps users configure SSH access to their VMs. The tool:
+- Configures SSH jump host (asf-jump)
+- Sets up VM-specific SSH configurations
+- Generates easy-to-use SSH commands
+- Available at `/downloads/db_vm_ssh_config_manager.exe`
+
+Access the help page at `/help` for detailed instructions on using the SSH Config Manager.
+
 ## API Endpoints
 
 ### Authentication
@@ -129,6 +140,7 @@ docker network create caddy_network
 
 ### User Routes
 - `GET /dashboard` - User dashboard
+- `GET /help` - Help page with SSH configuration guide
 - `POST /create-devbench` - Create new DevBench
 - `POST /delete-devbench/:id` - Delete DevBench
 - `POST /activate-devbench/:id` - Activate DevBench
@@ -150,9 +162,8 @@ docker network create caddy_network
 - `name` - DevBench name (user input)
 - `actual_name` - Actual VM name from script
 - `status` - Current status (active/inactive/creating)
-- `ssh_info` - SSH connection string
-- `vnc_info` - VNC connection string
-- `vm_ip` - VM IP address
+- `ssh_info` - SSH port number
+- `vnc_info` - VNC port number
 - `created_at` - Creation timestamp
 - `updated_at` - Last update timestamp
 
@@ -206,7 +217,12 @@ Application logs are available in the container or local environment where the a
 │   ├── layout.ejs        # Base layout
 │   ├── login.ejs         # Login page
 │   ├── admin.ejs         # Admin dashboard
-│   └── dashboard.ejs     # User dashboard
+│   ├── dashboard.ejs     # User dashboard
+│   └── help.ejs          # Help page
+├── public/                # Static assets
+│   ├── css/              # Stylesheets
+│   ├── images/           # Images and icons
+│   └── downloads/        # Downloadable files (SSH Config Manager)
 ├── provision_vm.sh        # VM provisioning script
 ├── Dockerfile            # Docker configuration
 ├── docker-compose.yml    # Docker Compose configuration

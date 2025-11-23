@@ -1,0 +1,125 @@
+<%- include('layout', { body: `
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2><i class="fas fa-question-circle"></i> Help - How to Use DevBench Manager</h2>
+    <a href="/dashboard" class="btn btn-primary">
+        <i class="fas fa-arrow-left"></i> Back to Dashboard
+    </a>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-info text-white">
+        <h5><i class="fas fa-info-circle"></i> SSH Configuration Tool</h5>
+    </div>
+    <div class="card-body">
+        <p class="lead">Follow these steps to configure SSH access to your VM:</p>
+        
+        <ol class="help-steps">
+            <li>
+                <strong>Download the VM SSH Config Tool</strong>
+                <p>Download the configuration tool from here:</p>
+                <a href="/downloads/db_vm_ssh_config_manager.exe" class="btn btn-success mb-2" download>
+                    <i class="fas fa-download"></i> Download SSH Config Manager
+                </a>
+            </li>
+            
+            <li>
+                <strong>Open the Tool</strong>
+                <p>Run the <code>db_vm_ssh_config_manager.exe</code> application.</p>
+            </li>
+            
+            <li>
+                <strong>Add Friendly Name</strong>
+                <p>In the "Host" field, enter a friendly name for your VM (e.g., <code>vm-test1</code>).</p>
+            </li>
+            
+            <li>
+                <strong>Add SSH Port</strong>
+                <p>Enter the SSH port number shown in your DevBench connection info (e.g., <code>6004</code>).</p>
+            </li>
+            
+            <li>
+                <strong>Add Username</strong>
+                <p>Enter the username: <code>asf_user</code></p>
+            </li>
+            
+            <li>
+                <strong>Keep Jump Proxy</strong>
+                <p>Keep the jump proxy as: <code>asf-jump</code></p>
+            </li>
+            
+            <li>
+                <strong>Press Add VM</strong>
+                <p>Click the "Add VM" button to save the configuration.</p>
+            </li>
+            
+            <li>
+                <strong>Select VM Host and Show Command</strong>
+                <p>In the "Select VM Host" dropdown, choose your VM name and click "Show Commands".</p>
+            </li>
+            
+            <li>
+                <strong>Access Your VM</strong>
+                <p>You will now see the SSH command to access your VM. Copy and use it in your terminal.</p>
+            </li>
+        </ol>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+        <h5><i class="fas fa-terminal"></i> Connection Information</h5>
+    </div>
+    <div class="card-body">
+        <h6>SSH Connection:</h6>
+        <p>After configuring the SSH tool, you can connect using:</p>
+        <pre class="bg-light p-3 rounded"><code>ssh [your-vm-name]</code></pre>
+        
+        <h6 class="mt-4">VNC Connection:</h6>
+        <p>For graphical access, use your VNC client with the port shown in your DevBench info.</p>
+        <p><strong>Default Password:</strong> <code>ASF</code></p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header bg-warning text-dark">
+        <h5><i class="fas fa-exclamation-triangle"></i> Important Notes</h5>
+    </div>
+    <div class="card-body">
+        <ul>
+            <li>The default password for both SSH and VNC is: <strong>ASF</strong></li>
+            <li>Make sure to keep your SSH config tool updated with the correct ports</li>
+            <li>Each DevBench has unique SSH and VNC ports</li>
+            <li>Contact your administrator if you encounter any issues</li>
+        </ul>
+    </div>
+</div>
+
+<style>
+.help-steps {
+    font-size: 1.1rem;
+    line-height: 1.8;
+}
+
+.help-steps li {
+    margin-bottom: 1.5rem;
+}
+
+.help-steps strong {
+    color: #0d6efd;
+    display: block;
+    margin-bottom: 0.5rem;
+}
+
+.help-steps p {
+    margin-left: 1rem;
+    color: #666;
+}
+
+.help-steps code {
+    background-color: #f8f9fa;
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: #d63384;
+}
+</style>
+`, username }) %>

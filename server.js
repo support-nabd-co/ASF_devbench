@@ -37,7 +37,6 @@ db.serialize(() => {
         status TEXT DEFAULT 'inactive',
         ssh_info TEXT,
         vnc_info TEXT,
-        vm_ip TEXT,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users (id)
@@ -267,6 +266,13 @@ app.post('/admin/reset-password/:id', requireAuth, requireAdmin, (req, res) => {
     });
 });
 
+// Help page
+app.get('/help', requireAuth, (req, res) => {
+    res.render('help', { 
+        username: req.session.username
+    });
+});
+
 // User dashboard
 app.get('/dashboard', requireAuth, (req, res) => {
     if (req.session.isAdmin) {
@@ -446,32 +452,27 @@ function executeProvisionScript(command, vmName, userId, devbenchId) {
         
         if (command === 'create') {
             if (code === 0) {
-                // Parse the output to extract actual VM name and connection info
-                const actualNameMatch = output.match(/✅ VM '([^']+)' started with IP:/);
-                const ipMatch = output.match(/VM IP: (\d+\.\d+\.\d+\.\d+)/);
+                // Parse the output to extract VM name, SSH port, and VNC port
+                const vmNameMatch = output.match(/VM_NAME=(.+)/);
+                const sshPortMatch = output.match(/SSH_PORT=(\d+)/);
+                const vncPortMatch = output.match(/VNC_PORT=(\d+)/);
                 
-                if (actualNameMatch) {
-                    const actualName = actualNameMatch[1];
-                    const vmIp = ipMatch ? ipMatch[1] : null;
+                if (vmNameMatch && sshPortMatch && vncPortMatch) {
+                    const actualName = vmNameMatch[1].trim();
+                    const sshPort = sshPortMatch[1];
+                    const vncPort = vncPortMatch[1];
                     
-                    // Generate SSH and VNC info based on the IP
-                    let sshInfo = null;
-                    let vncInfo = null;
+                    // Generate SSH and VNC info
+                    const sshInfo = sshPort;
+                    const vncInfo = vncPort;
                     
-                    if (vmIp) {
-                        sshInfo = `ssh -t asf@asf-tb.duckdns.org "ssh asf_user@${vmIp}"`;
-                        // Look for VNC info in output or generate default
-                        const vncMatch = output.match(/VNC: (.+)/);
-                        vncInfo = vncMatch ? vncMatch[1] : `connect to host at port 5901 (e.g., via your VNC client)`;
-                    }
-                    
-                    console.log(`Updating database: ${actualName}, IP: ${vmIp}`);
+                    console.log(`Updating database: ${actualName}, SSH Port: ${sshPort}, VNC Port: ${vncPort}`);
                     
                     db.run(`UPDATE devbenches SET 
-                            actual_name = ?, status = 'active', vm_ip = ?, 
+                            actual_name = ?, status = 'active', 
                             ssh_info = ?, vnc_info = ?, updated_at = CURRENT_TIMESTAMP 
                             WHERE id = ?`, 
-                           [actualName, vmIp, sshInfo, vncInfo, devbenchId], (err) => {
+                           [actualName, sshInfo, vncInfo, devbenchId], (err) => {
                         if (err) {
                             console.error('Database update error:', err);
                         } else {
@@ -479,7 +480,7 @@ function executeProvisionScript(command, vmName, userId, devbenchId) {
                         }
                     });
                 } else {
-                    console.log('Could not parse VM name from output');
+                    console.log('Could not parse VM info from output');
                     db.run('UPDATE devbenches SET status = ? WHERE id = ?', ['error', devbenchId]);
                 }
             } else {

@@ -29,7 +29,8 @@ fi
 
 # SSH connection details
 SSH_USER="asf"
-SSH_HOST="asf-tb.duckdns.org"
+SSH_HOST="asf-server.duckdns.org"
+SSH_PORT="49152"
 SSH_PASS="ASF"
 
 # The path to the script on the remote server
@@ -83,7 +84,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Build the full SSH command
-SSH_CMD="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=60 -o ServerAliveCountMax=30"
+SSH_CMD="ssh -p $SSH_PORT -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=60 -o ServerAliveCountMax=30"
 FULL_CMD="$REMOTE_SCRIPT_PATH $COMMAND $VM_NAME"
 
 log "Executing remote command: $FULL_CMD"
@@ -109,21 +110,21 @@ log "Executing remote command: $FULL_CMD"
 } | tee "$TEMP_OUTPUT"
 
 # Process the output to extract connection information
-SSH_INFO=""
-VNC_INFO=""
-VM_IP=""
+SSH_PORT=""
+VNC_PORT=""
+VM_NAME_ACTUAL=""
 
 # Read the output line by line to parse connection info
 while IFS= read -r line; do
-    # Extract SSH connection info
-    if [[ $line == *"SSH:"* ]]; then
-        SSH_INFO=$(echo "$line" | sed 's/^[[:space:]]*SSH:[[:space:]]*//')
-    # Extract VNC connection info
-    elif [[ $line == *"VNC:"* ]]; then
-        VNC_INFO=$(echo "$line" | sed 's/^[[:space:]]*VNC:[[:space:]]*//')
-    # Extract VM IP address
-    elif [[ $line == *"VM IP:"* && ! $line == *"not yet assigned"* ]]; then
-        VM_IP=$(echo "$line" | grep -oE 'VM IP: [0-9.]+' | cut -d' ' -f3)
+    # Extract SSH port (e.g., "SSH Port: 6004")
+    if [[ $line == *"SSH Port:"* ]]; then
+        SSH_PORT=$(echo "$line" | grep -oE 'SSH Port: [0-9]+' | cut -d' ' -f3)
+    # Extract VNC port (e.g., "VNC Port: 5004")
+    elif [[ $line == *"VNC Port:"* ]]; then
+        VNC_PORT=$(echo "$line" | grep -oE 'VNC Port: [0-9]+' | cut -d' ' -f3)
+    # Extract VM name from success message
+    elif [[ $line == *"VM"*"Created and Ready"* ]]; then
+        VM_NAME_ACTUAL=$(echo "$line" | sed -n 's/.*VM \([^ ]*\) Created and Ready.*/\1/p')
     fi
     
     # Log each line to the log file
@@ -132,14 +133,14 @@ done < "$TEMP_OUTPUT"
 
 # Output the connection information in a structured format
 echo "VM_CREATION_COMPLETE"
-if [ -n "$VM_IP" ]; then
-    echo "VM_IP=$VM_IP"
+if [ -n "$VM_NAME_ACTUAL" ]; then
+    echo "VM_NAME=$VM_NAME_ACTUAL"
 fi
-if [ -n "$SSH_INFO" ]; then
-    echo "SSH_INFO=$SSH_INFO"
+if [ -n "$SSH_PORT" ]; then
+    echo "SSH_PORT=$SSH_PORT"
 fi
-if [ -n "$VNC_INFO" ]; then
-    echo "VNC_INFO=$VNC_INFO"
+if [ -n "$VNC_PORT" ]; then
+    echo "VNC_PORT=$VNC_PORT"
 fi
 
 # Check if the command was successful

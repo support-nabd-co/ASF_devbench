@@ -61,7 +61,8 @@
                         <th>DevBench Name</th>
                         <th>Actual Name</th>
                         <th>Status</th>
-                        <th>IP Address</th>
+                        <th>SSH Port</th>
+                        <th>VNC Port</th>
                         <th>Created</th>
                         <th>Actions</th>
                     </tr>
@@ -77,7 +78,8 @@
                                     ${db.status}
                                 </span>
                             </td>
-                            <td>${db.vm_ip || 'N/A'}</td>
+                            <td>${db.ssh_info || 'N/A'}</td>
+                            <td>${db.vnc_info || 'N/A'}</td>
                             <td>${new Date(db.created_at).toLocaleDateString()}</td>
                             <td>
                                 <button class="btn btn-sm btn-danger" onclick="adminDeleteDevbench(${db.id})">

@@ -4,7 +4,7 @@ echo "🚀 Deploying DevBench Manager with all improvements..."
 
 # Create directories
 echo "📁 Creating directories..."
-mkdir -p data logs public/css public/images
+mkdir -p data logs public/css public/images public/downloads
 
 # Make scripts executable
 echo "🔧 Setting permissions..."
@@ -34,12 +34,13 @@ sleep 15
 # Check status
 if docker ps | grep -q devbench-manager; then
     echo ""
-    echo "🎉 SUCCESS! DevBench Manager is running with improvements:"
+    echo "🎉 SUCCESS! DevBench Manager is running with latest updates:"
     echo ""
-    echo "✅ Fixed status detection (now properly shows active/inactive)"
-    echo "✅ Added activate command support to provision script"
-    echo "✅ Improved SSH connection info format"
-    echo "✅ Added NABD Solutions company logo"
+    echo "✅ Updated SSH access (asf@asf-server.duckdns.org:49152)"
+    echo "✅ Simplified connection info (SSH Port & VNC Port only)"
+    echo "✅ Added Help page with SSH Config Manager guide"
+    echo "✅ Added TBM icon branding"
+    echo "✅ SSH Config Manager tool available for download"
     echo "✅ Enhanced UI with copy-to-clipboard functionality"
     echo ""
     echo "🌐 Access Points:"
